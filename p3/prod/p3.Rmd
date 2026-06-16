@@ -1,0 +1,151 @@
+---
+title: "p3"
+output: html_document
+date: "2026-02-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(webshot)
+```
+
+```{r}
+summary <- read_tsv("genotype_metrics.variant_calling_summary_metrics", skip = 6)
+details <- read_tsv("genotype_metrics.variant_calling_detail_metrics", skip = 6)
+```
+
+```{r}
+read_overview <- data.frame(
+  raw = c('754,959,296'),
+  qc_reads_s = c('754,388,818'),
+  qc_reads_a = c('757,534,178'),
+  mapped = c('756,067,406'),
+  perc_mapped = c('99.81')
+)
+
+read_overview %>%
+  rename(
+    `Raw Reads (Sequences)` = raw,
+    `QC Reads (Sequences)` = qc_reads_s,
+    `QC Reads (Alignments)` = qc_reads_a,
+    `Mapped Reads (Alignments)` = mapped,
+    `% of QC Reads Mapped` = perc_mapped
+  ) %>%
+  t %>% 
+  kable %>% 
+  kable_classic %>%
+  column_spec(1, bold = T, border_right = T) %>% 
+  kable_styling(
+    bootstrap_options = c(
+      "striped",
+      "hover",
+      "scale_down"
+    )
+  )
+
+```
+
+```{r}
+read_coverage <- read_tsv(
+  "mapped.coverage.chr"
+)
+
+read_coverage %>%
+  rename(
+    Chr = `#rname`,
+    Coverage = coverage,
+    `Avg Read Depth` = meandepth
+  ) %>%
+  select(
+    Chr, Coverage, `Avg Read Depth`
+  ) %>% 
+  kable %>% 
+  kable_classic %>%
+  column_spec(1, bold = T, border_right = T) %>% 
+  column_spec(2, bold = T, border_right = T) %>% 
+  kable_styling(
+    bootstrap_options = c(
+      "striped",
+      "hover",
+      "scale_down"
+    )
+  )
+
+```
+
+```{r}
+genotype_stats <- data.frame(
+  Total = c(
+    "3,245,694", "777,922"
+  ),
+  dbSNP = c(
+    "3,215,139", "738,021"
+  ),
+  Novel = c(
+    "30,555", "39,901"
+  ),
+  group = c(
+    "SNPs", "Indels"
+  )
+) %>%
+  group_by(group) %>% 
+  select(
+    Total, dbSNP, Novel
+  )
+
+genotype_stats %>%
+  kable %>% 
+  kable_classic %>%
+  column_spec(1, bold = T, border_right = T) %>% 
+  kable_styling(
+    bootstrap_options = c(
+      "striped",
+      "hover",
+      "scale_down"
+    )
+  )
+
+```
+
+```{r}
+variant_overview <- data.frame(
+  Total = c(
+    "4,023,616"
+  ),
+  dbSNP = c(
+    "2.075681"
+  ),
+  Novel = c(
+    "1.508621"
+  ),
+  group = c(
+    "1.028005"
+  )
+) %>%
+  rename(
+    `Total Variants` = Total,
+    `dbSNP Ts/Tv Ratio` = dbSNP,
+    `Novel Ts/Tv Ratio` = Novel,
+    `Insertion/Deletion Ratio` = group,
+  )
+
+variant_overview %>%
+  t %>% 
+  kable %>% 
+  kable_classic %>%
+  column_spec(1, bold = T, border_right = T) %>% 
+  kable_styling(
+    bootstrap_options = c(
+      "striped",
+      "hover",
+      "scale_down"
+    )
+  )
+
+```

@@ -4,5 +4,9 @@
 *.bai
 *.sam
 *.vcf
+*.vcf.gz
+*.vcf.gz.tbi
 *.fastq
 *.fastq.gz
+*.fastqc.zip
+*.out.gz
