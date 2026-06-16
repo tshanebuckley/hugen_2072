@@ -1,0 +1,2867 @@
+---
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+------------------------------------------------------------------------
+
+title: "HUGEN 2072 Project 2" output: html_document: code_folding: show
+toc: true toc_float: true ---s
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+# Instructions
+
+Below is a tutorial consisting of a mostly-completed QC pipeline and
+some prompts.
+
+Project 1 has three components:
+
+-   **Scripting/coding**: read through this file and complete the
+    pipeline by contributing your code *where indicated*.
+
+-   **Narrative**: knit the completed .Rmd to a code-integrated HTML
+    report of your QC process and decisions.
+
+    -   Your report must answer all the questions and perform all the
+        tasks indicated in the instructions/prompts given for each step.
+
+    -   You must submit a successfully-knitted HTML file and the `.Rmd`
+        in order to earn a passing grade for this project.
+
+    -   Set up your report to flow like an actual document you might
+        show your supervisor to summarize the QC project, emphasizing
+        what was done at each step rather than the code used to do it
+        (e.g., how many samples/SNPs were filtered out at a given step?)
+
+    -   **Submit your .Rmd and HTML to Canvas**
+
+-   **Presentation**: you will make a 10 min (maximum) recording of
+    yourself with Panopto in which you summarize this QC pipeline.
+    Instructions will given on Canvas.
+
+In each Part of this project you will implement one of the main steps of
+cleaning genotyping array data in a small dataset (note that we left a
+few steps out). You'll be shown how to use functions from the
+`{GWASTools}` package, and you'll supply a little of your own code to
+complete the pipeline that's been provided. At each step, you may be
+asked to create a filter for the data, to address errors/discrepancies,
+etc. Then for each step you'll make a short report (a few sentences and
+figures) explaining what you did.
+
+Note that "sample" and "scan" are used interchangeably throughout this
+assignment, but that these are NOT synonymous with
+subject/participant/individual/etc. In this assignment, "SNP" and
+"probe" are used interchangeably, but in other contexts you should
+always remember the distinction.
+
+**Since the pipeline below is incomplete, some of the R code chunks are
+set to `eval=FALSE` so that knitting to HTML will succeed. You will need
+to change them to `eval=TRUE` as you progress so that your knitted
+document shows the results of running each chunk.**
+
+**It is expected that you will copy this file somewhere to your
+directory on the CRC cluster so that you can use the RStudio Server,
+where all the packages you need have been installed already.**
+
+### Acknowlegement
+
+This work was done is parallel with Kash, Caylin, Vanessa, and
+Cecileigh. However, I take ultimate responsibility for the content of
+this assignment.
+
+## Part 0 - Setup and Introduction to Annotation Data Frames
+
+First, load the packages we'll be using.
+
+```{r load_packages, message=F, eval=TRUE}
+
+# Load the required packages for the project (Install them if necessary)
+
+library("GWASTools", quietly = TRUE)
+library("GWASdata", quietly = TRUE)
+library("SNPRelate", quietly = TRUE)
+
+# Close any open GDS files before proceeding (think of this as starting off with
+# a 'blank slate')
+
+showfile.gds(closeall = T, verbose = T)
+
+```
+
+The array data (genotypes, intensities, and BAF/LRR information) for
+this project are contained in several GDS files; accompanying SNP and
+scan annotation are also provided as an `.RData` file.
+
+The probe/SNP annotation is stored in an object called a scan annotation
+data frame, and the sample-level annotation is stored in a scan
+annotation data frame. Each of these objects is similar to an ordinary
+data frame. More precisely, a data frame is embedded within each. There
+is also accompanying metadata. To access the data and metadata, the
+`{GWASTools}` package provides several functions. Three basic functions
+you should familiarize yourself with are `getAnnotation()`/`pData()`
+(extracts a standard data frame containing the annotation),
+`getMetadata()`/`varMetadata()` (extracts a data frame of variable
+descriptions), and `getVariableNames()`/`varLabels()` (extracts a vector
+of just the variable names). You can also view a variable in one of
+these objects by using `$`, as you would for an ordinary data frame. You
+can also add new variables, but you need to be careful to update the
+metadata as well. Since we will be adding new variables in the process
+of cleaning our data, the following chunk of code shows you how to do
+this. Then you will practice looking at the annotation, and your task is
+to answer some questions about this data set.
+
+First, load the annotation data (`annotation_data.RData`) that was
+provided with this project. **You need to supply the path to this
+file.**
+
+```{r load_annotation, eval=TRUE}
+
+# Load the probe (SNP) and sample annotation data frames, which have been saved
+# in an .RData file
+
+path_to_annotation_data <-
+  "/ix1/hugen2072-2026s/p1/annotation_data.RData"
+load(path_to_annotation_data)
+
+# List the loaded objects
+
+ls()
+
+```
+
+Here's a toy example showing you how to work with annotation data
+frames. **Read this carefully, since you'll need to do this throughout
+the assignment.**
+
+```{r annotation_data_frame_example, eval=TRUE}
+
+### How to add a new variable to an annotation data frame ###
+
+#   Make a new copy of the SNP annotation (just for this example)
+
+snp_annodf_temp <- snpAnnot
+
+#   Notice that printing the object isn't that helpful
+
+snp_annodf_temp
+
+#   So extract the annotation itself (this is the 'normal' data frame embedded
+#   in the SNP annotation data frame object). Now you can see the SNP-level
+#   annotation
+
+snp_data_temp <- getAnnotation(snp_annodf_temp)
+head(snp_data_temp)
+
+#   Add a new column to the annotation (an integer dummy variable)
+
+snp_data_temp$dummy <- 1:nrow(snp_data_temp)
+
+#   Now update the scan annotation object itself by replacing the what was in
+#   the annotation "slot"
+
+pData(snp_annodf_temp) <- snp_data_temp
+
+#   You can see that the new column has been added
+
+head(pData(snp_annodf_temp))
+
+#   Extract the metadata so that it can be updated
+
+meta_temp <- getMetadata(snp_annodf_temp)
+meta_temp
+
+#   Add a new row titled "dummy" with an appropriate labelDescription (note that
+#   the metadata is a data frame with named rows but one column)
+
+meta_temp["dummy", "labelDescription"] <- "This is a dummy variable"
+
+#   Finally, replace the old metadata with the new metadata
+
+varMetadata(snp_annodf_temp) <- meta_temp
+
+#   Look at the data and metadata to make sure there the dummy variable has been
+#   added
+
+head(getAnnotation(snp_annodf_temp))
+getMetadata(snp_annodf_temp)
+
+#   Remove the temp files
+
+rm(snp_annodf_temp, snp_data_temp, meta_temp)
+
+```
+
+Now we use `GdsGenotypeReader()` and `GdsIntensityReader()` to open the
+gds files that contain the array data. Then use `GenotypeData()` and
+`IntensityData()` to combine them with the SNP and sample annotation,
+since the functions we'll be using later require this information to be
+"packaged" together.
+
+```{r load_array_data, eval=TRUE}
+
+#   Get the genotypes from a gds file
+
+genofile <-
+  system.file("extdata", "illumina_geno.gds", package = "GWASdata")
+gds_geno <- GdsGenotypeReader(genofile)
+
+#   Combine the genotypes with the sample and SNP annotation
+
+genoData <-
+  GenotypeData(gds_geno, snpAnnot = snpAnnot, scanAnnot = scanAnnot)
+genoData
+
+#   Get the intensity data from a gds file
+
+qxyfile <-
+  system.file("extdata", "illumina_qxy.gds", package = "GWASdata")
+gds_qxy <- GdsIntensityReader(qxyfile)
+
+#   Combine with the sample and SNP annotation
+
+qxyData <-
+  IntensityData(gds_qxy, snpAnnot = snpAnnot, scanAnnot = scanAnnot)
+qxyData
+
+#   Get the BAF/LRR data from a gds file
+
+blfile <-
+  system.file("extdata", "illumina_bl.gds", package = "GWASdata")
+gds <- GdsIntensityReader(blfile)
+
+#   Combine the BAF/LRR data with the sample and SNP annotation
+
+blData <-
+  IntensityData(gds, snpAnnot = snpAnnot, scanAnnot = scanAnnot)
+blData
+
+```
+
+## Part 0 - Report
+
+Using the functions introduced above to help you, briefly describe the
+dataset in a few sentences. Answer the following questions. Whatever
+code you use to help answer these questions can go in the empty chunk
+that follows.
+
+-   What is the difference between the scanID and subjectID variables?
+    Why are they both provided?
+
+The scanID is the ID for each unique scan wile the subjectID is unique
+per subject. Both are provided because each subject may have multiple
+scans/samples that may be intended or unintended duplicates depending on
+the design of the study.
+
+-   How many families are represented, and how many samples are from
+    each family?
+
+13
+
+-   How many samples are of each sex?
+
+F scans: 35 M scans: 42
+
+-   How many samples are from each population group?
+
+CEU: 49\
+YRI: 28
+
+-   How many samples are there? How many people did they come from?
+
+Samples: 77 People: 43
+
+-   How many SNPs are there?
+
+3300
+
+-   Which chromosomes are represented? How many SNPs are on each?
+
+21: 1000\
+22: 1000\
+23: 1000\
+24: 100\
+25: 100\
+26: 100
+
+```{r part0_report}
+library(tidyverse)
+
+# What is the difference between the scanID and subjectID variables? Why are they both provided?
+getMetadata(scanAnnot)
+scanAnnot %>%
+  getAnnotation() %>%
+  head()
+
+# How many families are represented, and how many samples are from each family?
+scanAnnot %>%
+  getAnnotation() %>% 
+  group_by(family) %>% 
+  summarise(
+    n = n()
+  ) %>% 
+  count
+
+# How many samples are of each sex?
+n_scans <- scanAnnot %>%
+      getAnnotation() %>%
+      nrow()
+n_F_scans <- scanAnnot %>% 
+  getAnnotation() %>% 
+  filter(sex == 'F') %>% 
+  nrow()
+n_M_scans <- scanAnnot %>% 
+  getAnnotation() %>% 
+  filter(sex == 'M') %>% 
+  nrow()
+print(
+  paste0(
+    "Total scans: ",
+    n_scans
+  )
+)
+print(
+  paste0(
+    "F scans: ",
+    n_F_scans
+  )
+)
+print(
+  paste0(
+    "M scans: ",
+    n_M_scans
+  )
+)
+
+# How many samples are from each population group?
+scanAnnot %>% 
+  getAnnotation() %>% 
+  group_by(race) %>% 
+  summarize(
+    n = n()
+  )
+
+# How many samples are there? How many people did they come from?
+scanAnnot %>% 
+  getAnnotation() %>% 
+  group_by(subjectID) %>% 
+  summarize(
+    n = n()
+  ) %>% 
+  count()
+
+# How many SNPs are there?
+n_snp <- snpAnnot %>% 
+  getAnnotation() %>% 
+  nrow()
+print(
+  paste0(
+    "There are ",
+    n_snp,
+    " SNPs."
+  )
+)
+
+# Which chromosomes are represented? How many SNPs are on each?
+print("For all calls:")
+snpAnnot %>% 
+  getAnnotation() %>% 
+  select(chromosome, snpID) %>% 
+  unique() %>% 
+  group_by(chromosome) %>% 
+  summarize(
+    n = n()
+  )
+
+```
+
+## Part 1 - Missing Call Rate for Samples and SNPs
+
+The basic `{GWASTools}` functions for missingness are
+`missingGenotypeBySnpSex()` and `missingGenotypeByScanChrom()`.
+`missingGenotypeBySnpSex()` returns a list of three objects:
+`missing.counts`, `scans.per.sex`, and `missing.fraction`. Read the help
+file for this function so that you understand what information is
+contained in these and how the Y chromosome is treated by sex (where sex
+is as defined in the scan annotation). Similarly,
+`missingGenotypeByScanChrom()` returns `missing.counts`, `snps.per.chr`,
+and `missing.fraction`.
+
+There are four basic missingness calculations to be done, in the
+following order.
+
+1.  Calculate `missing.n1` = fraction of genotype calls missing over all
+    samples (except that annotated ‘female’ individuals are excluded for
+    Y chr SNPs)
+
+2.  Calculate `missing.e1` = missing call rate per sample over all SNPs
+    (excluding SNPs with all calls missing)
+
+3.  Calculate `missing.n2` = missing call rate per SNP over all samples
+    whose `missing.e1` is less than `0.05`
+
+4.  Calculate `missing.e2` = missing call rate per sample over all SNPs
+    with `missing.n2` values less than `0.05`
+
+We'll want to store the missingness information in the annotation data
+frames as we proceed.
+
+Here's how to calculate and store `missing.n1`.
+
+```{r missing.n1, eval=TRUE}
+
+### Using missingGenotypeBySnpSex to calculate missing.n1 ###
+
+#   First look at some of the results
+
+miss <- missingGenotypeBySnpSex(genoData)
+names(miss)
+head(miss$missing.counts)
+miss$scans.per.sex
+head(miss$missing.fraction)
+
+#   We should make sure the snpIDs are in the same order in the annotation and
+#   in the missingness report (miss$missing.fraction); they are
+
+allequal(snpAnnot$snpID, as.numeric(names(miss$missing.fraction)))
+
+#   Then go ahead and add missing.n1 as a new annotation data column, and update
+#   the metadata
+
+snpAnnot$missing.n1 <- miss$missing.fraction
+varMetadata(snpAnnot)["missing.n1", "labelDescription"] <-
+  paste(
+    "fraction of genotype calls missing over all samples, except that females are excluded for Y chr SNPs"
+  )
+
+### Explore the missing call rate per probes a little more
+
+#   Look at the distribution of missingness for all the probes
+
+hist(
+  snpAnnot$missing.n1,
+  ylim = c(0, 100),
+  xlab = "SNP missing call rate",
+  main = "Missing Call Rate for All Probes"
+)
+
+#   How many SNPs are missing a genotype for every single sample? Apparently
+#   there are 151 such SNPs
+
+sum(snpAnnot$missing.n1 == 1)
+
+#   Store a vector containing the snpIDs of all the SNPs with missingness of
+#   100%
+
+snpexcl <- snpAnnot$snpID[snpAnnot$missing.n1 == 1]
+
+```
+
+Now we calculate and store `missing.e1`. The steps are described in the
+comments below.
+
+```{r missing.e1, eval=TRUE}
+
+### Using missingGenotypeByScanChrom to calculate missing.e1
+
+#   Apply missingGenotypeByScanChrom to genoData, using the snp.exclude option
+#   to exclude these SNPs (why does it make sense to exclude those SNPs?)
+
+miss <- missingGenotypeByScanChrom(genoData, snp.exclude = snpexcl)
+
+#   Make sure the order of the scanIDs in the output from
+#   missingGenotypeByScanChrom is the same as the order of the scanIDs in the
+#   annotation data frame
+
+allequal(names(miss$missing.fraction), scanAnnot$scanID)
+
+#   Make a new column in scanAnnot called missing.e1 and store the per-scan
+#   missingness from missingGenotypeByScanChrom there
+
+scanAnnot$missing.e1 <- miss$missing.fraction
+
+#   Update the scanAnnot metadata
+
+varMetadata(scanAnnot)["missing.e1", "labelDescription"] <-
+  "fraction of genotype calls missing over all snps with missing.n1<1 except that Y chr SNPs are excluded for females"
+
+# We can check summary statistics and make a histogram, too
+
+summary(scanAnnot$missing.e1)
+hist(
+  scanAnnot$missing.e1,
+  xlab = "Fraction of missing calls over all probes",
+  main = "Histogram of Sample Missing Call Rate for All Samples"
+)
+
+print("For only calls MCR < 1:")
+snpAnnot %>% 
+  getAnnotation() %>% 
+  filter(missing.n1 < 1) %>% 
+  select(chromosome, snpID) %>% 
+  unique() %>% 
+  group_by(chromosome) %>% 
+  summarize(
+    n = n()
+  )
+
+```
+
+Now, supply your code to calculate and store `missing.n2`. The steps you
+should follow are described in the comments below.
+
+```{r missing.n2, eval=TRUE}
+
+### Now that missing.n1 and missing.e1 have been calculated, we can calculate missing.n2
+
+#   Recall that missing.n2 = call rate per SNP over all samples whose missing.e1
+#   is less than 0.05.
+
+#   Since no sample had missing.e1 > 0.05 in this dataset, we don't actually
+#   have to exclude any samples.
+
+#   However, let's proceed as if there were some samples with missing.e1 > 0.05.
+
+#   Make a vector of the scanIDs for the samples with high missing.e1.
+
+snp_call_rate_gt_0_05 <- scanAnnot$scanID[scanAnnot$missing.e1 > 0.05]
+
+#   Apply the missingGenotypeBySnpSex function again, using the scan.exclude
+#   argument.
+
+miss <- missingGenotypeBySnpSex(genoData, scan.exclude = snp_call_rate_gt_0_05)
+
+#   Store missing.n2 as a new column in snpAnnot.
+
+snpAnnot$missing.n2 <- miss$missing.fraction
+
+#   Update the metadata for snpAnnot!
+
+#   The labelDescription for missing.n2 should be "fraction of genotype calls
+#   missing over all samples with missing.e1 < 0.05 except that females are
+#   excluded for Y chr SNPs"
+
+varMetadata(snpAnnot)["missing.n2", "labelDescription"] <-
+  "fraction of genotype calls missing over all samples with missing.e1 < 0.05 except that females are excluded for Y chr SNPs"
+
+summary(snpAnnot$missing.n2)
+hist(
+  snpAnnot$missing.n2,
+  xlab = "Fraction of missing calls over all samples w/MCR < 0.05",
+  main = "Histogram of SNPs Missing Call Rate for All Samples w/MCR < 0.05"
+)
+
+```
+
+Write code to calculate and store `missing.e2`. The steps you should
+follow are described in the comments below.
+
+```{r missing.e2, eval=TRUE}
+
+### Last, we calculate missing.e2
+
+#   Recall missing.e2 = missing call rate per sample over all SNPs with
+#   missing.n2 values less than 0.05
+
+#   Store a vector with the snpIDs of all probes with missing.n2 >= 0.05
+
+sample_call_rate_gte_0_05 <- snpAnnot$snpID[snpAnnot$missing.n2 >= 0.05]
+
+#   Apply missingGenotypeByScanChrom to genoData again, using the snp.exclude
+#   argument to exclude the SNPs with missing.n2 >= 0.05 (why do we do this?)
+
+miss <- missingGenotypeByScanChrom(genoData, snp.exclude = sample_call_rate_gte_0_05)
+
+#   Make a new column in scanAnnot called missing.e2 to store the missingness
+#   per-scan you just calculated
+
+scanAnnot$missing.e2 <- miss$missing.fraction
+
+#   Update the scanAnnot metadata
+
+#   The labelDescription should say "fraction of genotype calls missing over all
+#   snps with missing.n2 < 0.05 except that Y chr SNPs are excluded for females"
+
+varMetadata(scanAnnot)["missing.e2", "labelDescription"] <-
+  "fraction of genotype calls missing over all snps with missing.n2 < 0.05 except that Y chr SNPs are excluded for females"
+
+hist(
+  scanAnnot$missing.e2,
+  xlab = "Fraction of missing calls over all snps w/MCR < 0.05",
+  main = "Histogram of Sample Missing Call Rate for All SNPs w/MCR < 0.05"
+)
+
+```
+
+## Part 1 - Report
+
+Summarize the filtering you've accomplished at this step. Include the
+following in your answer the following questions.
+
+-   (First, make sure you've filled in the calculations of `missing.n2`
+    and `missing.e2` in the chunks above.)
+
+-   How many SNPs and samples were genotyped?
+
+-   Briefly describe the purpose of doing this step in two rounds (why
+    do we calculate both missingnesses twice?)
+
+-   What were the median, mean, and maximum per-sample missingness (use
+    `missing.e2`)? Make a histogram of `missing.e2`.
+
+-   How many samples had no missing calls at all (use `missing.e2`)?
+
+-   Are the samples generally "good"? How many should be excluded from
+    downstream analyses?
+
+-   How many SNPs had a 100% missing call rate (use `missing.n1`)?
+
+-   What are the median, mean, and maximum per-SNP missingnesses (use
+    `missing.n2`)? How many SNPs are missing no calls at all?
+
+-   Make a histogram of `missing.n2`.
+
+-   How many SNPs are filtered out and how many remain if you retain
+    only SNPs with `missing.n2` \< 0.05?
+
+-   Make a histogram showing `missing.n2` for the remaining SNPs.
+
+```{r part1_report}
+
+# How many SNPs and samples were genotyped?
+
+print("Number of SNPs attempted to be genotyped:")
+nrow(snpAnnot)
+print("Number of SNPs genotyped:")
+snpAnnot %>% 
+  getAnnotation() %>% 
+  filter(missing.n1 < 1) %>% 
+  nrow()
+print("Number of Samples attempted to be genotyped:")
+nrow(scanAnnot)
+print("Number of Samples genotyped:")
+scanAnnot %>% 
+  getAnnotation() %>% 
+  filter(missing.e1 < 1) %>%
+  nrow()
+
+# Briefly describe the purpose of doing this step in two rounds (why do we calculate both missingnesses twice?)
+
+print("A: We undergo two rounds of missingness alternating between sample-wise and snp-wise filtering.")
+print("The first round is to filter based on overall probe-wise (per probe for all samples) and sample-wise (per sample across all probes) missingness.")
+print("The second round repeats the task with a limit of missingess less than 5%.")
+print("Probe-wise for round 2 ensures we have only probes from high quality samples.")
+print("Sample-wise for round 2 ensures we have only samples from high quality probes.")
+
+# What were the median, mean, and maximum per-sample missingness (use `missing.e2`)?
+
+print("See table and histogram for per-sample missingness overview...")
+scanAnnot %>% 
+  getAnnotation() %>% 
+  summarise(
+    median = median(missing.e2),
+    mean = mean(missing.e2),
+    max = max(missing.e2)
+  )
+
+# Make a histogram of `missing.e2`.
+
+hist(
+  scanAnnot$missing.e2,
+  xlab = "Missing Call Rate",
+  main = "Frequency of Sample Missingness in High Quality SNPs"
+)
+
+# How many samples had no missing calls at all (use `missing.e2`)?
+
+print("Samples with no missing calls:")
+scanAnnot %>% 
+  getAnnotation() %>% 
+  filter(missing.e2 == 0) %>% 
+  nrow()
+
+# Are the samples generally "good"? How many should be excluded from downstream analyses?
+
+print("Overall samples to be excluded:")
+scanAnnot %>% 
+  getAnnotation() %>% 
+  filter(missing.e2 > 0.05) %>% 
+  nrow()
+print("Overall, it was found that the samples were high quality and none were excluded from downstream analysis.")
+
+# How many SNPs had a 100% missing call rate (use `missing.n1`)?
+
+print("Number of SNPs with 100% MCR:")
+n_100_perc_missing_snps <- snpAnnot %>% 
+  getAnnotation() %>% 
+  filter(missing.n1 == 1) %>% 
+  nrow()
+n_100_perc_missing_snps
+
+# 151 ... now I have to add a pokemon easter egg for the original 151
+# ...placed at the bottom of this report
+
+# What are the median, mean, and maximum per-SNP missingnesses (use `missing.n2`)? How many SNPs are missing no calls at all?
+
+print("See table and histogram for per-SNP missingness overview...")
+snpAnnot %>% 
+  getAnnotation() %>% 
+  summarise(
+    median = median(missing.n2),
+    mean = mean(missing.n2),
+    max = max(missing.n2)
+  )
+
+# Make a histogram of `missing.n2`.
+
+hist(
+  snpAnnot$missing.n2,
+  xlab = "Missing Call Rate",
+  main = "Frequency of SNP Missingness in High Quality Samples"
+)
+
+# How many SNPs are filtered out and how many remain if you retain only SNPs with `missing.n2` \< 0.05?
+
+print("Remaining SNPs if only retaining SNPs with MCR < 0.05")
+retained_snps <- snpAnnot %>% 
+  getAnnotation() %>% 
+  filter(missing.n2 < 0.05)
+retained_snps %>% nrow()
+
+# Make a histogram showing `missing.n2` for the remaining SNPs.
+retained_snps$missing.n2 %>% 
+  hist(
+    xlab = "Missing Call Rate",
+    main = "Frequency of SNP Missingness in High Quality Samples w/MCR < 0.05"
+  )
+
+```
+
+```{r}
+
+retained_scans <- scanAnnot %>%
+  getAnnotation() %>% 
+  filter(missing.e2 < 0.05)
+
+# How many families are represented, and how many samples are from each family?
+retained_scans %>% 
+  group_by(family) %>% 
+  summarise(
+    n = n()
+  ) %>% 
+  count
+
+# How many samples are of each sex?
+n_scans <- retained_scans %>%
+      nrow()
+n_F_scans <- retained_scans %>% 
+  filter(sex == 'F') %>% 
+  nrow()
+n_M_scans <- retained_scans %>% 
+  filter(sex == 'M') %>% 
+  nrow()
+print(
+  paste0(
+    "Total scans: ",
+    n_scans
+  )
+)
+print(
+  paste0(
+    "F scans: ",
+    n_F_scans
+  )
+)
+print(
+  paste0(
+    "M scans: ",
+    n_M_scans
+  )
+)
+
+# How many samples are from each population group?
+retained_scans %>% 
+  group_by(race) %>% 
+  summarize(
+    n = n()
+  )
+
+# How many samples are there? How many people did they come from?
+retained_scans %>% 
+  group_by(subjectID) %>% 
+  summarize(
+    n = n()
+  ) %>% 
+  count()
+
+retained_snps %>% nrow()
+
+retained_snps %>% 
+  select(chromosome, snpID) %>% 
+  unique() %>% 
+  group_by(chromosome) %>% 
+  summarize(
+    n = n()
+  )
+
+```
+
+## Part 2 - Inferred vs. Reported Sex and Relatedness
+
+To investigate discrepancies in inferred vs. reported sex (and,
+possibly, sex chromosome aneuploidies), we will produce four plots that
+summarize each scan's heterozygosity and intensity for the sex
+chromosomes:
+
+1.  Mean Y chromosome vs. mean X chromosome intensity
+
+2.  Mean X chromosome heterozygosity vs. mean X chromosome intensity
+
+3.  Mean Y chromosome intensity vs. mean X chromosome heterozygosity
+
+4.  Mean X chromosome heterozygosity vs. autosomal heterozygosity
+
+Recall that the intensity data was read in earlier as `qxyData`. Before
+making our graphs, we'll need to calculate the variables we want to
+plot. The basic function we'll use to do this is
+`meanIntensityByScanChrom()`, which will return a list of matrices. Read
+the help file of this function so that you understand the output.
+Heterozygosity is calculated with `hetByScanChrom()`.
+
+```{r sex_check, eval=TRUE}
+
+#   Look at the structure of the IntensityData object
+
+qxyData
+
+#   For each probe, there's a numerical ID, chromosome, position, rsID
+
+#   The intensities (stored as variables called X and Y) are each essentially
+#   3300×77 matrices (an X and Y intensity for each scan for every single probe)
+
+#   (Don't confuse the *intensity variable names* _X_ and _Y_ in the IntensityData
+#   object with the X and Y *chromosomes*!)
+
+#   Apply the meanIntensityByScanChrom function to get the intensity averages.
+#   (We're not going to use all of the output from this function)
+
+inten.by.chrom <- meanIntensityByScanChrom(qxyData)
+
+#   Extract the matrix containing the mean intensity for each chromosome for
+#   each scan
+
+names(inten.by.chrom)
+mninten <- inten.by.chrom$mean.intensity
+
+#   The matrix is 77x6 since there are 77 samples and 6 chromosomes represented
+#   in the dataset
+
+dim(mninten)
+head(mninten)
+
+#   We also need to calculate the X chromosome and autosome heterozygosities for
+#   each sample before we can plot them
+
+#   Apply hetByScanChrom to genoData (we need actual genotypes to calculate the
+#   heterozygosity)
+
+het.results <- hetByScanChrom(genoData)
+
+#   The function calculates eachs scan's heterozygosity for each chromosome, and
+#   also for the autosomes as a whole
+
+#   We want to add X and autosome heterozygosity as new columns in scanAnnot
+
+#   Make sure the scanIDs are in the right order first! (they are)
+
+allequal(scanAnnot$scanID, rownames(het.results))
+
+#   Extract the autosomal and X heterozygosity and store them in scanAnnot
+
+scanAnnot$het.A <- het.results[, "A"]
+scanAnnot$het.X <- het.results[, "X"]
+
+#   Add appropriate metadata
+
+varMetadata(scanAnnot)["het.A", "labelDescription"] <-
+  "fraction of heterozygotes for autosomal SNPs"
+varMetadata(scanAnnot)["het.X", "labelDescription"] <-
+  "fraction of heterozygotes for X chromosome SNPs"
+
+#   Before making the plots, there are a few things to do
+
+#   We want to color the plotted points by annotated sex
+
+#   But first, make sure that the order of the scanIDs (and hence the annotated
+#   sexes) matches the order of the scanIDs in the data we'll plot
+
+allequal(scanAnnot$scanID, rownames(mninten))
+
+#   Now we assign each sex a color (male=blue, female=red)
+
+#   Store the colors in a vector
+
+xcol <- rep(NA, nrow(scanAnnot))
+xcol[scanAnnot$sex == "M"] <- "blue"
+xcol[scanAnnot$sex == "F"] <- "red"
+
+#   We also want to count the number of SNPs getting included on the X and Y
+#   chromosomes (which are coded as 23 and 25 in snpAnnot)
+
+nx <- sum(snpAnnot$chromosome == 23)
+ny <- sum(snpAnnot$chromosome == 25)
+
+# Now make the plots
+
+# All intensities
+
+x1 <- mninten[, "X"]
+y1 <- mninten[, "Y"]
+main1 <- "Mean X vs \nMean Y Chromosome Intensity"
+
+# Het on X vs X intensity
+
+x2 <- mninten[, "X"]
+y2 <- scanAnnot$het.X
+main2 <-
+  "Mean X Chromosome Intensity vs Mean X Chromosome Heterozygosity"
+
+# Het on X vs Y intensity
+
+y3 <- mninten[, "Y"]
+x3 <- scanAnnot$het.X
+main3 <-
+  "MeanX Chromosome Heterozygosity vs Mean Y Chromosome Intensity"
+
+# X vs A het
+
+x4 <- scanAnnot$het.A[scanAnnot$sex == "F"]
+y4 <- scanAnnot$het.X[scanAnnot$sex == "F"]
+main4 <-
+  "Mean Autosomal Heterozygosity vs Mean X Chromosome Heterozygosity"
+
+# Make labels for axes/legends
+
+cols <- c("blue", "red")
+mf <- c("male", "female")
+xintenlab <- paste("X intensity (n=", nx, ")", sep = "")
+yintenlab <- paste("Y intensity (n=", ny, ")", sep = "")
+
+# Make the 4 plots and add a legend
+
+par(mfrow = c(2, 2))
+plot(
+  x1,
+  y1,
+  xlab = xintenlab,
+  ylab = yintenlab,
+  main = main1,
+  col = xcol,
+  cex.main = 0.8
+)
+legend("bottomleft",
+       mf,
+       col = cols,
+       pch = c(1, 1),
+       cex = 0.5)
+plot(
+  x2,
+  y2,
+  col = xcol,
+  xlab = xintenlab,
+  ylab = "X heterozygosity",
+  main = main2,
+  cex.main = 0.8
+)
+plot(
+  x3,
+  y3,
+  col = xcol,
+  ylab = yintenlab,
+  xlab = "X heterozygosity",
+  main = main3,
+  cex.main = 0.8
+)
+plot(
+  x4,
+  y4,
+  col = "red",
+  xlab = "Autosomal heterozygosity",
+  ylab = "X heterozygosity",
+  main = main4,
+  cex.main = 0.8
+)
+par(mfrow = c(1, 1))
+
+```
+
+## Part 2 - Report (Sex Check)
+
+-   Describe any anomalies you see in the 4 plots above.
+
+-   Figure out the scanIDs of any scans that look like outliers or
+    possible instances of mislabeled sex. Include these IDs in your
+    report and describe why they appear to be mislabeled.
+
+-   For the purposes of this assignment we will ASSUME that some scans
+    have just had their sexes mislabeled. (In "real life", we would not
+    just assume this, and we might instead flag these scans for removal
+    from some downstream steps/analyses.)
+
+-   Manually change the sex annotation for these scans in scanAnnot to
+    "remove" the discrepancy. (Manually changing your data is risky and
+    not generally recommended. Be careful!). In your report, state
+    exactly what changes you made. Add a new column to scanAnnot
+    indicating this, too (add appropriate metadata). Does anything in
+    the pedigree structure make you more confident that this "fix" is
+    correct? (Are these samples labeled as mothers or fathers?)
+
+-   Remake the 4 plots above, using the "corrected" data (nothing should
+    appear mislabeled now for this dataset).
+
+-   How might you follow up on this "in real life"?
+
+```{r part2_report_sex_check}
+
+# Describe any anomalies you see in the 4 plots above.
+
+print("There appear to be 2 or 3 reported females that are inferring XY.")
+print("These can be seen in the X vs Y intensity and heteroygosity plots and the X intensity vs X heterozygosity plots.")
+print("There also appear to be some outliers with low X heterogeneity vs autosomal heteroygosity.")
+print("These are likely the reported females that we can infer are male.")
+
+# Figure out the scanIDs of any scans that look like outliers or possible instances of mislabeled sex. Include these IDs in your report and describe why they appear to be mislabeled.
+
+# get the outliers from the reported females with a low X heterozygosity (arbitrarily chose 0.1 give the graphs)
+diff_inferred_sex <- scanAnnot %>% 
+  getAnnotation() %>% 
+  filter(sex == "F" & het.X < 0.1) %>%
+  select(scanID) %>%
+  unlist()
+
+print('Scans that appear to have mislabeled sex (in "incorrect:" cluster):')
+diff_inferred_sex
+
+# For the purposes of this assignment we will ASSUME that some scans have just had their sexes mislabeled. (In "real life", we would not just assume this, and we might instead flag these scans for removal from some downstream steps/analyses.)
+
+# Manually change the sex annotation for these scans in scanAnnot to "remove" the discrepancy. (Manually changing your data is risky and not generally recommended. Be careful!). In your report, state exactly what changes you made. Add a new column to scanAnnot indicating this, too (add appropriate metadata). Does anything in the pedigree structure make you more confident that this "fix" is correct? (Are these samples labeled as mothers or fathers?)
+
+# save the reported sex values
+scanAnnot$reported_sex <- scanAnnot$sex
+# update the descriptions of sex and reported_sex
+varMetadata(scanAnnot)["sex", "labelDescription"] <-
+  "sex coded as M=male and F=female as corrected from inference from the data"
+varMetadata(scanAnnot)["reported_sex", "labelDescription"] <-
+  "sex coded as M=male and F=female as reported in the raw data"
+
+# manually update the sex given the scanIDs identified
+updated_sex <- scanAnnot$sex
+print("Before reported/inferred sex correction:")
+table(updated_sex)
+names(updated_sex) <- scanAnnot$scanID
+
+for(scan in diff_inferred_sex) {
+  idx <- toString(scan)
+  updated_sex[idx] <- if_else(updated_sex[idx] == "F", "M", "F")
+}
+
+print("After reported/inferred sex correction:")
+table(updated_sex)
+
+scanAnnot$sex <- updated_sex
+
+# Remake the 4 plots above, using the "corrected" data (nothing should appear mislabeled now for this dataset).
+
+# can just copy & paste the graphing code above because we updated the "sex" column itself...
+# --- start copied code ---
+
+#   Apply hetByScanChrom to genoData (we need actual genotypes to calculate the
+#   heterozygosity)
+
+het.results <- hetByScanChrom(genoData)
+
+#   The function calculates eachs scan's heterozygosity for each chromosome, and
+#   also for the autosomes as a whole
+
+#   We want to add X and autosome heterozygosity as new columns in scanAnnot
+
+#   Make sure the scanIDs are in the right order first! (they are)
+
+allequal(scanAnnot$scanID, rownames(het.results))
+
+#   Extract the autosomal and X heterozygosity and store them in scanAnnot
+
+scanAnnot$het.A <- het.results[, "A"]
+scanAnnot$het.X <- het.results[, "X"]
+
+#   Add appropriate metadata
+
+varMetadata(scanAnnot)["het.A", "labelDescription"] <-
+  "fraction of heterozygotes for autosomal SNPs"
+varMetadata(scanAnnot)["het.X", "labelDescription"] <-
+  "fraction of heterozygotes for X chromosome SNPs"
+
+#   Before making the plots, there are a few things to do
+
+#   We want to color the plotted points by annotated sex
+
+#   But first, make sure that the order of the scanIDs (and hence the annotated
+#   sexes) matches the order of the scanIDs in the data we'll plot
+
+allequal(scanAnnot$scanID, rownames(mninten))
+
+#   Now we assign each sex a color (male=blue, female=red)
+
+#   Store the colors in a vector
+
+xcol <- rep(NA, nrow(scanAnnot))
+xcol[scanAnnot$sex == "M"] <- "blue"
+xcol[scanAnnot$sex == "F"] <- "red"
+
+#   We also want to count the number of SNPs getting included on the X and Y
+#   chromosomes (which are coded as 23 and 25 in snpAnnot)
+
+nx <- sum(snpAnnot$chromosome == 23)
+ny <- sum(snpAnnot$chromosome == 25)
+
+# Now make the plots
+
+# All intensities
+
+x1 <- mninten[, "X"]
+y1 <- mninten[, "Y"]
+main1 <- "Mean X vs \nMean Y Chromosome Intensity"
+
+# Het on X vs X intensity
+
+x2 <- mninten[, "X"]
+y2 <- scanAnnot$het.X
+main2 <-
+  "Mean X Chromosome Intensity vs Mean X Chromosome Heterozygosity"
+
+# Het on X vs Y intensity
+
+y3 <- mninten[, "Y"]
+x3 <- scanAnnot$het.X
+main3 <-
+  "MeanX Chromosome Heterozygosity vs Mean Y Chromosome Intensity"
+
+# X vs A het
+
+x4 <- scanAnnot$het.A[scanAnnot$sex == "F"]
+y4 <- scanAnnot$het.X[scanAnnot$sex == "F"]
+main4 <-
+  "Mean Autosomal Heterozygosity vs Mean X Chromosome Heterozygosity"
+
+# Make labels for axes/legends
+
+cols <- c("blue", "red")
+mf <- c("male", "female")
+xintenlab <- paste("X intensity (n=", nx, ")", sep = "")
+yintenlab <- paste("Y intensity (n=", ny, ")", sep = "")
+
+# Make the 4 plots and add a legend
+
+par(mfrow = c(2, 2))
+plot(
+  x1,
+  y1,
+  xlab = xintenlab,
+  ylab = yintenlab,
+  main = main1,
+  col = xcol,
+  cex.main = 0.8
+)
+legend("bottomleft",
+       mf,
+       col = cols,
+       pch = c(1, 1),
+       cex = 0.5)
+plot(
+  x2,
+  y2,
+  col = xcol,
+  xlab = xintenlab,
+  ylab = "X heterozygosity",
+  main = main2,
+  cex.main = 0.8
+)
+plot(
+  x3,
+  y3,
+  col = xcol,
+  ylab = yintenlab,
+  xlab = "X heterozygosity",
+  main = main3,
+  cex.main = 0.8
+)
+plot(
+  x4,
+  y4,
+  col = "red",
+  xlab = "Autosomal heterozygosity",
+  ylab = "X heterozygosity",
+  main = main4,
+  cex.main = 0.8
+)
+par(mfrow = c(1, 1))
+
+# --- end copied code ---
+
+# How might you follow up on this "in real life"?
+
+print("I would check with any RAs to see if any surveys, general collection of the data, or the individual themselves may have specified a different gender identity than biological sex or if they maybe mislabeled the sex.")
+print('If unable to confirm these inferences, I would consult the PI on if they want to keep these "corrected" data or drop these samples.')
+
+scanAnnot %>% 
+  getAnnotation() %>% 
+  filter(scanID %in% diff_inferred_sex)
+
+```
+
+## Part 3 - Allelic Imbalance; BAF and LRR Plots
+
+Here we want to look at B allele frequency (BAF) and log R ratio (LRR)
+plots using `chromIntensityPlot()`. Ordinarily, since there are 22 to 23
+chromosomes to check for every sample, you would use a script that
+automatically detects aberrations in BAF and LRR. For this project,
+we'll pretend that our pipeline has already flagged one sample for a
+possible chromosomal anomaly.
+
+```{r baflrr, eval=TRUE}
+
+# Recall that earlier we read the intensity data into an IntensityData object
+# called blData.
+
+# The snp/scan annotation were attached as well.
+
+# Suppose that chromosome 22 was flagged for scanID 286.
+
+# Making the BAF/LRR plot is easy
+
+#dev.off()
+chromIntensityPlot(blData, scan.ids = 286, chrom.ids = 22)
+par(mfrow = c(1, 1))
+
+```
+
+## Part 3 - Report
+
+-   Describe the purpose of this step.
+
+-   Show an example of a "normal" pair of BAF/LRR plots (choose any
+    chromosome/scanID you want).
+
+-   How would you detect trisomy 21 (i.e., describe briefly in words
+    what the BAF/LRR plot would look like).
+
+-   Suppose an individual had a balanced reciprocal translocation
+    involving chromosome 2 and 4. What would you expect that
+    individual's BAF/LRR plots would look like for those chromosomes?
+
+-   Suppose chromosome 22 in sample 286 was the only chromosome flagged
+    for a possible anomaly in this dataset. Looking at the plot, do you
+    notice anything strange? Can you suggest what kind of anomaly might
+    be showing up? (There isn't any single answer that's certainly
+    right! The purpose of this question is to check that you understand
+    what the BAF and LRR plots "mean").
+
+-   Finally, suppose your pipeline has given you a list of the exact
+    chromosomal segments showing possibly aneuploidies/anomalies in each
+    sample. What would you recommend doing with the genotypes in those
+    segments? (You're not being asked to implement this here - just say
+    what you recommend doing.)
+
+```{r part3_report}
+
+# Describe the purpose of this step.
+
+print("The purpose of this step is to check for a number of potential anomalies including:")
+print("- segments of chromosomal deletions, duplicatons, and runs of homozygosity")
+print("- potential aneuploidies")
+print("- admixture, whole genome mosaicism, or chimerism")
+print("Ultimitely, we are looking to genotypes to exclude or whole samples whose copy number is unexpected.")
+
+# Show an example of a "normal" pair of BAF/LRR plots (choose any chromosome/scanID you want).
+
+chromIntensityPlot(blData, scan.ids = 284, chrom.ids = 21)
+
+# How would you detect trisomy 21 (i.e., describe briefly in words what the BAF/LRR plot would look like).
+
+print("I would expect the BAF plot to have 4 distinct bands around 0, 0.333, 0.667, and 1.")
+print("I would expect the band of the LRR plot to be upshifted form 0 to around 0.5 or higher.")
+
+# Suppose an individual had a balanced reciprocal translocation involving chromosome 2 and 4. What would you expect that individual's BAF/LRR plots would look like for those chromosomes?
+
+print("I would expect them to still appear normal. The balanced and recipricol nature of them makes the amount of genetic material and karyotypes unchanged, so I woulnd't expect to see any anomolies in the plots related to this.")
+
+# Suppose chromosome 22 in sample 286 was the only chromosome flagged for a possible anomaly in this dataset. Looking at the plot, do you notice anything strange? Can you suggest what kind of anomaly might be showing up? (There isn't any single answer that's certainly right! The purpose of this question is to check that you understand what the BAF and LRR plots "mean").
+
+print("It looks mostly fine. There may some signs for deletions and/or runs of homozygosity.")
+
+# Finally, suppose your pipeline has given you a list of the exact chromosomal segments showing possibly aneuploidies/anomalies in each sample. What would you recommend doing with the genotypes in those segments? (You're not being asked to implement this here - just say what you recommend doing.)
+
+print("Quite simply, I would recommend removing those genotypes from those chromosomal segments.")
+
+```
+
+## Easter Egg - Uncalled SNP Pokedex
+
+```{r}
+# references stackoverflow for this: https://stackoverflow.com/questions/73535956/how-to-insert-an-image-from-a-url-into-r-markdown-html-vignette
+# and this:
+# https://r-graph-gallery.com/363-add-images-and-links-in-kableExtra.html
+get_pokemon_url <- function(number) {
+  knitr::include_graphics(
+    paste0(
+      "https://raw.githubusercontent.com/PokeAPI/sprites/refs/heads/master/sprites/pokemon/",
+      number,
+      ".png"
+    )
+  )
+}
+
+print("Generating uncalled SNP Pokedex...")
+library(kableExtra)
+uncalled_snps <- snpAnnot %>% 
+  getAnnotation() %>% 
+  filter(missing.n1 == 1) %>%
+  mutate(
+    id = row_number()
+  ) %>% 
+  mutate(
+    pokemon = get_pokemon_url(id)
+  ) %>% 
+  select(id, rsID, chromosome, pokemon)
+pokemon <- uncalled_snps$pokemon
+uncalled_snps %>% 
+  mutate(pokemon = "") %>% 
+  kbl(booktabs = T, align = "c") %>%
+  kable_styling() %>%
+  kable_paper(full_width = T) %>%
+  column_spec(
+    4,
+    image = spec_image(pokemon, 280, 200) # dimensions of the images
+  )
+
+```
+
+## Part 4 - Relatedness
+
+Next, we estimate the identity-by-descent (IBD) coefficients for each
+pair of scans in order to describe genetic relatedness. There are
+various methods for doing this. We'll use the KING method, implemented
+in the `SNPRelate` package. The `pedigreeCheck` function will help us
+look for errors in the pedigree (i.e., the reported relationships)
+before comparing reported vs. genetic relatedness. Look at the help menu
+for this function to see what kinds of inconsistencies it reports on.
+Then `pedigreePairwiseRelatedness` will calculate the expected genetic
+relatedness for each pair of subjects, based on the reported pedigree
+structure.
+
+```{r relatedness, eval=TRUE}
+
+#   Close the connection to the genotypes gds file (recall that we changed the
+#   sexes in the previous step, so we should "remake" genoData with the updated
+#   annotation)
+
+close(genoData)
+
+#   Re-open the data
+
+gds_geno <- system.file("extdata", "illumina_geno.gds", package="GWASdata")
+gdsobj <- snpgdsOpen(gds_geno)
+
+#   Let's use the snp.id argument to include only "good" SNPs in the calculation
+#   (missing.n2 < 0.05)
+
+snps_to_include_for_kinship <-
+  snpAnnot$snpID[snpAnnot$missing.n1 < 0.05]
+
+#   Apply snpgdsIBDKING to calculate relatedness statistics. The IBD object
+#   returned is a list containing scanIDs, snpIDs, and two relatedness matrices
+
+ibdobj <- snpgdsIBDKING(gdsobj, snp.id = snps_to_include_for_kinship)
+snpgdsClose(gdsobj)
+dim(ibdobj$kinship)
+
+#   Observe that monomorphic and non-autosomal SNPs are also being excluded by
+#   default
+
+#   Recall that the relatedness matrices are symmetric 77×77 matrices (the entry
+#   in row i, column j is the coefficient for samples i and j)
+
+ibdobj$kinship[1:5, 1:5]
+
+#   Next, we use pedigreeCheck to look for problems in the pedigree (duplicates,
+#   impossible relationships, and other inconsistencies)
+
+#   The goal is to clean up the pedigree before applying the functions that will
+#   determine the expected relatedness coefficients
+
+#   First, pull out all the pedigree information from the scan annotation (77
+#   scans)
+
+#   Notice that we're using subjectID and not scanID here (recall the
+#   difference)
+
+ped <-
+  pData(scanAnnot)[, c("family", "subjectID", "father", "mother", "sex")]
+dim(ped)
+
+#   Rename the subjectID variable
+
+names(ped) <- c("family", "individ", "father", "mother", "sex")
+head(ped)
+
+#   pedigreeCheck has returned a list of three data frames: duplicates,
+#   parent.no.individ.entry, and unknown.parent.rows
+
+chk <- pedigreeCheck(ped)
+chk
+
+#   We'll deal with these in turn
+
+#   First, we remove duplicates from the pedigree
+
+#   Get the data frame of duplicates from chk
+
+dups <- chk$duplicates
+head(dups)
+
+#   Use the pedigreeDeleteDuplicates function to make a new pedigree with the duplicates removed
+
+uni.ped <- pedigreeDeleteDuplicates(ped, dups)
+dim(uni.ped)
+
+#   Observe that uni.ped is smaller than ped
+
+#   Now we apply pedigreeCheck again
+
+chk <- pedigreeCheck(uni.ped)
+
+#   Examining chk, we see that there are three types of problem
+
+#   (Note that pedigreeCheck would have identified the mismatched sexes if we
+#   had not fixed them already)
+
+#   We deal with these in turn
+
+#    parent.no.individ.entry
+#    unknown.parent.rows
+#    subfamilies.ident
+
+chk
+
+#   parent.no.individ.entry
+
+#   This means the person in row 8 of uni.ped has a parent (mother) whose ID
+#   (200039107) doesn't occur as an "individ" in the pedigree
+
+#   We fix this by simply making and adding on a new row for this mother
+
+ni <- chk$parent.no.individ.entry
+ni
+parent <-
+  data.frame(
+    family = ni$family,
+    individ = ni$parentID,
+    father = 0,
+    mother = 0,
+    sex = "F",
+    stringsAsFactors = FALSE
+  )
+
+#   Call the new pedigree ped.updated and apply pedigreeCheck again
+
+ped.updated <- rbind(uni.ped, parent)
+chk <- pedigreeCheck(ped.updated)
+chk
+
+#   unknown.parent.rows
+
+#   This means the person in row 42 of ped.updated has one parent known and one
+#   missing
+
+up <- chk$unknown.parent.rows
+up
+
+#   Let's look at this family (family 58)
+
+ped.updated[ped.updated$family == 58, ]
+
+#   Apparently the mother is unknown
+
+#   Let's make up an individ ID for this mother, enter it it as the son's
+#   mother's ID, and add a row to the pedigree for her
+
+ped.updated[42, "mother"] <- 987654321
+parent <-
+  data.frame(
+    family = up$family,
+    individ = 987654321,
+    father = 0,
+    mother = 0,
+    sex = "F",
+    stringsAsFactors = FALSE
+  )
+
+#   Call the filled-out pedigree ped.complete, and apply pedigreeCheck
+
+ped.complete <- rbind(ped.updated, parent)
+chk <- pedigreeCheck(ped.complete)
+chk
+
+#   subfamilies.ident
+
+subf <- chk$subfamilies.ident
+subf
+table(subf$family)
+
+#   This identifies subfamilies (families where not everyone is linked into the
+#   same pedigree as constructed by fathers'/mothers' IDs)
+
+#   We should make these subfamilies into new families
+
+#   Get the individuals from subfamily 2 from each family and add on "-2" their
+#   family IDs
+
+subf.ids <- subf$individ[subf$subfamily == 2]
+newfam <- ped.complete$individ %in% subf.ids
+ped.complete$family[newfam] <-
+  paste0(ped.complete$family[newfam], "-2")
+
+#   Now families 1341 and 1362 have been split into 2 trios (the new families
+#   are 1341-2 and 1362-2)
+
+table(ped.complete$family)
+
+#   pedigreeCheck now returns NULL, meaning the pedigree now has no problems
+
+pedigreeCheck(ped.complete)
+
+#   Now we can calculate the pairwise expected relatedness for all the subjects
+#   in the completed pedigree
+
+#   The function pedigreePairwiseRelatedness returns a list summarizing the
+#   relationships
+
+rels <- pedigreePairwiseRelatedness(ped.complete)
+
+#   First, we can see that none of the parents are related by looking at
+#   inbred.fam
+
+length(rels$inbred.fam)
+
+#   Next we extract relativeprs, a data frame summarizing the relationships
+
+relprs <- rels$relativeprs
+
+#   It contains relationship type (e.g., parent-offspring, unrelated, etc.) and
+#   kinship coefficient for each pair within each family
+
+relprs[1:5,]
+table(relprs$relation)
+
+#   We see that our pedigree is relatively simple: 30 parent-offspring pairs
+#   (PO) and 15 unrelated
+
+#   (If we had a more complex pedigree structure, we would see more types of
+#   relationships listed)
+
+### Now we want to plot of the IBD coefficient estimates, color coded by the
+### expected relationships we've just calculated
+
+#   But first we need to merge together the expected and observed genetic
+#   relationship data for all the pairs of scans
+
+#   First, get all the scanIDs/subjectIDs from scanAnnot
+
+samp <- pData(scanAnnot)[, c("scanID", "subjectID")]
+
+#   Make sure the order matches that in the IBD object
+
+samp <- samp[match(ibdobj$sample.id, samp$scanID), ]
+
+#   Rename subjecID as Individ (like in the pedigree)
+
+names(samp) <- c("scanID", "Individ")
+
+#   Use snpgdsIBDSelection to find all pairs of samples with kinship coefficient
+
+ibd <- snpgdsIBDSelection(ibdobj)
+
+#   Merge in the subjectIDs that go with the scanIDs
+
+ibd <- merge(ibd, samp, by.x = "ID1", by.y = "scanID")
+ibd <-
+  merge(
+    ibd,
+    samp,
+    by.x = "ID2",
+    by.y = "scanID",
+    suffixes = c("1", "2")
+  )
+
+#   Create a pair-identifier variable to enable merging ibd with relprs (i.e.,
+#   merge the observed and expected genetic relationship data)
+
+ibd$ii <- pasteSorted(ibd$Individ1, ibd$Individ2)
+relprs$ii <- pasteSorted(relprs$Individ1, relprs$Individ2)
+
+#   Merge these together
+
+ibd <- merge(ibd, relprs[, c("ii", "relation")], all.x = TRUE)
+
+#   Rename the "relation" column (it refers to the expected relationship based
+#   on the pedigree, so call it exp.rel)
+
+names(ibd)[names(ibd) == "relation"] <- "exp.rel"
+
+#   For pairs of samples from the same person, set exp.rel="Dup" (duplicate)
+
+ibd$exp.rel[ibd$Individ1 == ibd$Individ2] <- "Dup"
+
+#   For the remaining pairs with missing exp.rel, replace the missing value with "U" (unknown)
+
+ibd$exp.rel[is.na(ibd$exp.rel)] <- "U"
+table(ibd$exp.rel, useNA = "ifany")
+
+#   Use the ibdAssignRelatednessKing function to call the observed relationships
+#   based on IBS0 and kinship values for each pair
+
+ibd$obs.rel <- ibdAssignRelatednessKing(ibd$IBS0, ibd$kinship)
+table(ibd$obs.rel, useNA = "ifany")
+
+# Finally, plot KC vs IBS0
+
+# Draw horizontal thresholds for assigning relationships using kinship
+# coefficients (taken from table 1 of Manichaikul (2010))
+
+cut.dup <- 1 / (2 ^ (3 / 2))
+cut.deg1 <- 1 / (2 ^ (5 / 2))
+cut.deg2 <- 1 / (2 ^ (7 / 2))
+cut.deg3 <- 1 / (2 ^ (9 / 2))
+cols <- c(Dup = "magenta",
+          PO = "cyan",
+          U = "black")
+plot(ibd$IBS0,
+     ibd$kinship,
+     col = cols[ibd$exp.rel],
+     xlab = "Fraction of IBS=0",
+     ylab = "Kinship coefficient")
+abline(
+  h = c(cut.deg1, cut.deg2, cut.deg3, cut.dup),
+  lty = 2,
+  col = "gray"
+)
+legend("topright",
+       legend = names(cols),
+       col = cols,
+       pch = 1)
+
+```
+
+From the kinship plot, we see there are some inconsistencies between the
+expected and observed genetic relatedness statistics. Making a table of
+expected vs. observed relationships can summarize this. Taking "Deg3"
+and "U" ("Unrelated") as synonynmous here for simplicity, we would
+expect all the off-diagonal entries of the table below to be 0.
+
+What we actually see is that 16 pairs that are supposedly unrelated are
+actually parent-offspring pairs; and 17 pairs that are supposedly
+parent-offspring pairs are showing up as genetically unrelated. Note
+that since there are multiple scans per person, there are a lot of
+relationships pairs here (77 scans implies 77 \* 76 / 2 = 2926 possible
+pairs, which is the sum of the entries in the table). Each of the 33
+discrepancies is a 'dot' in the 'wrong cluster' in the IBD plot we drew.
+
+Can we account for these discrepancies somehow? Let's try to find the
+pairs of individuals/families with discrepancies. We see below that only
+3 families are involved (families 1344, 1334, and 58). After poring over
+the list of discrepancies, we also see that they can be disentangled
+somewhat. The discrepancy involving family 58 concerns only 2 scanIDs,
+355 and 356 (both in the same family), so we can tackle it first. (On
+the other hand, the remaining 32 discrepancies involving families 1344
+and 1334 seem more complex.) It appears the discrepancy is due to a case
+of non-paternity - the pedigree in scanAnnot says that 356 is 355's
+father, but the kinship calculation says they're genetically unrelated.
+Therefore we should change the family IDs to reflect that they're
+unrelated.
+
+```{r relatedness2, eval=TRUE}
+
+#   Make a table of obsereved and expected relationships for each pair of scans
+
+ibd_recoded <- ibd
+ibd_recoded$obs.rel[ibd_recoded$obs.rel == "Deg3"] <- "U"
+table(expected = ibd_recoded$exp.rel, observed = ibd_recoded$obs.rel)
+
+#   What are the pairs with discrepancies?
+
+#   Print out all 33 rows
+
+discrepancies <-
+  ibd_recoded[!ibd_recoded$exp.rel == ibd_recoded$obs.rel, ]
+discrepancies
+
+#   Note that this table includes the scanIDs of each pair involved in a
+#   discrepancy
+
+### Which *families* are involved?
+
+#   Get the individual scanIDs first and match them back to the family IDs
+
+discrepancy_ids <- unlist(discrepancies[, c("ID1", "ID2")])
+discrepany_fids <-
+  pData(scanAnnot)$family[pData(scanAnnot)$scanID %in% discrepancy_ids]
+discrepany_fids <- unique(discrepany_fids)
+discrepany_fids
+
+#   The discrepancy with individuals 355 and 356 from family 58 seems easiest to
+#   fix first - it only involves one family
+
+discrepancies[discrepancies$ID1  %in% c(355, 356) |
+                discrepancies$ID2  %in% c(355, 356) ,]
+pData(scanAnnot)[pData(scanAnnot)$family == "58", ]
+
+#   Since 355 and 356 are actually unrelated, we should give one of them a new
+#   family ID
+
+#   Notice we use subjectID here
+
+#   Set "daughter"'s father-ID to 0
+
+pData(scanAnnot)[pData(scanAnnot)$subjectID == 200122151, "father"] <-
+  "0"
+
+#   Give the "dad" a new, unique family-ID
+
+pData(scanAnnot)[pData(scanAnnot)$subjectID == 200105428, "family"] <-
+  "58-2"
+pData(scanAnnot)[pData(scanAnnot)$family == 58, ]
+pData(scanAnnot)[pData(scanAnnot)$family == "58-2", ]
+
+```
+
+Now, you should account for the remaining discrepancies, which simply
+involve a sample swap between families 1334 and 1344. The sample swap
+involves just the children from two trios (each is scanned twice, and
+the parents are all scanned twice).
+
+For the swapped samples, manually "fix" their family IDs, mother IDs,
+and father IDs in scanAnnot (i.e., swap these IDs back so that each
+child has the correct parental and family IDs). You only need to adjust
+the variables `family`, `father`, and `mother` for 4 scans from the 2
+children. One of these has completed for you. **Add your code in the
+next chunk, where indicated.**
+
+```{r relatedness3, eval=TRUE}
+
+### Fixes
+
+#   Print out the pedigree info before and after the "fix"
+
+#   Need to update family, father, and mother for scanIDs 296, 297, 298, and 299
+
+#   296 is done for you
+
+#   Fill in the NAs with the correct values!
+
+pData(scanAnnot)[pData(scanAnnot)$family == 1334, ]
+pData(scanAnnot)[pData(scanAnnot)$family == 1344, ]
+
+# Scan1 from Kid 1
+
+pData(scanAnnot)[pData(scanAnnot)$scanID == 296, c("family", "father", "mother")] <-
+  c(1334, 200118596, 200019634)
+
+# Scan2 from Kid 1
+
+pData(scanAnnot)[pData(scanAnnot)$scanID == 297, c("family", "father", "mother")] <-
+  c(1334, 200118596, 200019634)
+
+# Scan1 from Kid 2
+
+pData(scanAnnot)[pData(scanAnnot)$scanID == 298, c("family", "father", "mother")] <-
+  c(1344, 200116780, 200005043)
+
+# Scan2 from Kid 2
+
+pData(scanAnnot)[pData(scanAnnot)$scanID == 299, c("family", "father", "mother")] <-
+  c(1344, 200116780, 200005043)
+
+pData(scanAnnot)[pData(scanAnnot)$family == 1334, ]
+pData(scanAnnot)[pData(scanAnnot)$family == 1344, ]
+
+```
+
+Now that we've "corrected" the sample-swaps, we should make a new IBD
+plot to verify that observed and expected relationships now match.
+
+```{r relatedness4, eval=TRUE}
+
+#   Recalculate the relatedness as above
+
+gds_geno <-
+  system.file("extdata", "illumina_geno.gds", package = "GWASdata")
+snps_to_include_for_kinship <-
+  snpAnnot$snpID[snpAnnot$missing.n1 < 0.05]
+gdsobj <- snpgdsOpen(gds_geno)
+ibdobj <- snpgdsIBDKING(gdsobj, snp.id = snps_to_include_for_kinship)
+snpgdsClose(gdsobj)
+
+#   Re-draw the pedigree
+
+ped <-
+  pData(scanAnnot)[, c("family", "subjectID", "father", "mother", "sex")]
+dim(ped)
+names(ped) <- c("family", "individ", "father", "mother", "sex")
+head(ped)
+chk <- pedigreeCheck(ped)
+chk
+
+#   Remove duplicates, as before
+
+dups <- chk$duplicates
+head(dups)
+uni.ped <- pedigreeDeleteDuplicates(ped, dups)
+dim(uni.ped)
+chk <- pedigreeCheck(uni.ped)
+chk
+
+#   Recall there was a person whose mother needed to be added to the pedigree
+
+ni <- chk$parent.no.individ.entry
+ni
+parent <-
+  data.frame(
+    family = ni$family,
+    individ = ni$parentID,
+    father = 0,
+    mother = 0,
+    sex = "F",
+    stringsAsFactors = FALSE
+  )
+ped.updated <- rbind(uni.ped, parent)
+chk <- pedigreeCheck(ped.updated)
+chk
+
+#   Recall that a family had to be broken into two new sub-families
+
+ped.complete <- ped.updated
+chk <- pedigreeCheck(ped.complete)
+subf <- chk$subfamilies.ident
+subf
+table(subf$family)
+subf.ids <- subf$individ[subf$subfamily == 2]
+newfam <- ped.complete$individ %in% subf.ids
+ped.complete$family[newfam] <-
+  paste0(ped.complete$family[newfam], "-2")
+table(ped.complete$family)
+pedigreeCheck(ped.complete)
+chk <- pedigreeCheck(ped.complete)
+chk
+
+#   Earlier we split family 58 into two singleton families (the "father" and
+#   "daughter" who weren't actually related) pedigreeCheck doesn't like
+#   singletons, so we need to assign dummy parents for the original two members
+#   of family 58 And these 4 dummy parents need to be added into the pedigree
+
+onefams <- chk$one.person.fams
+onefams
+ped.complete[ped.complete$family %in% c("58", "58-2"), ]
+ped.complete[ped.complete$family == "58",  c("father", "mother")] <-
+  c("1111", "2222")
+ped.complete[ped.complete$family == "58-2", c("father", "mother")] <-
+  c("3333", "4444")
+
+parents <- data.frame(
+  family = c("58", "58", "58-2", "58-2"),
+  individ = c("1111", "2222", "3333", "4444"),
+  father = c(0, 0, 0, 0),
+  mother = c(0, 0, 0, 0),
+  sex = c("M", "F", "M", "F"),
+  stringsAsFactors = FALSE
+)
+
+#   Complete the final pedigree, and now pedigreeCheck is happy (it returns NULL)
+
+ped.final <- rbind(ped.complete, parents)
+pedigreeCheck(ped.final)
+
+# Recalculate expected relationships in order to make a new plot, as above
+
+ped.complete <- ped.final
+rels <- pedigreePairwiseRelatedness(ped.final)
+length(rels$inbred.fam)
+relprs <- rels$relativeprs
+relprs[1:5, ]
+table(relprs$relation)
+samp <- pData(scanAnnot)[, c("scanID", "subjectID")]
+samp <- samp[match(ibdobj$sample.id, samp$scanID), ]
+names(samp) <- c("scanID", "Individ")
+ibd <- snpgdsIBDSelection(ibdobj)
+ibd <- merge(ibd, samp, by.x = "ID1", by.y = "scanID")
+ibd <-
+  merge(
+    ibd,
+    samp,
+    by.x = "ID2",
+    by.y = "scanID",
+    suffixes = c("1", "2")
+  )
+ibd$ii <- pasteSorted(ibd$Individ1, ibd$Individ2)
+relprs$ii <- pasteSorted(relprs$Individ1, relprs$Individ2)
+ibd <- merge(ibd, relprs[, c("ii", "relation")], all.x = TRUE)
+names(ibd)[names(ibd) == "relation"] <- "exp.rel"
+ibd$exp.rel[ibd$Individ1 == ibd$Individ2] <- "Dup"
+ibd$exp.rel[is.na(ibd$exp.rel)] <- "U"
+table(ibd$exp.rel, useNA = "ifany")
+
+#   Use the ibdAssignRelatednessKing function to call the observed relationships
+#   based on IBS0 and kinship values for each pair
+
+ibd$obs.rel <- ibdAssignRelatednessKing(ibd$IBS0, ibd$kinship)
+table(ibd$obs.rel, useNA = "ifany")
+
+#   Observe that now the observed and expected relationships match (if we take
+#   Deg3 and Unrelated as synonymous)
+
+table(ibd$exp.rel, ibd$obs.rel)
+
+#   Finally, plot KC vs IBS0
+
+#   Draw horizontal hresholds for assigning relationships using kinship
+#   coefficients (taken from table 1 of Manichaikul (2010))
+
+#   Now none of  the dots appear to be in the "wrong" clusters
+
+cut.dup <- 1 / (2 ^ (3 / 2))
+cut.deg1 <- 1 / (2 ^ (5 / 2))
+cut.deg2 <- 1 / (2 ^ (7 / 2))
+cut.deg3 <- 1 / (2 ^ (9 / 2))
+cols <- c(Dup = "magenta",
+          PO = "cyan",
+          U = "black")
+plot(ibd$IBS0,
+     ibd$kinship,
+     col = cols[ibd$exp.rel],
+     xlab = "Fraction of IBS=0",
+     ylab = "Kinship coefficient")
+abline(
+  h = c(cut.deg1, cut.deg2, cut.deg3, cut.dup),
+  lty = 2,
+  col = "gray"
+)
+legend("topright",
+       legend = names(cols),
+       col = cols,
+       pch = 1)
+
+```
+
+## Part 4 - Report (Relatedness)
+
+-   Summarize the pedigree structures you observe in the data.
+
+The pedigree data consists of parent-offspring trios with two samples per participant.
+
+-   Describe what discrepancies you observe in the initial kinship vs
+    IBS0 plot.
+    
+In the initial kinship vs IBS0 plot, it was observed that some unrelated samples were clustering as parent-offspring relationships while some parent-offspring relationships were clustering with unrelated samples. This gives the impression that at least some of this data may have been subjected to accidental swaps.
+
+-   Explain exactly the kinds of swaps/discrepancies that were found,
+    which IDs were involved, and exactly how you "fixed" them.
+
+A. Participant 200122151 (F; scan 355) was reported as the daughter of participant 200105428 (M; scan 356) though they appear to be unrelated. To correct this, the male was moved to family "58-2" and given dummy mother 4444 and dummy father 3333. The female was left in family "58" and given dummy father 1111 and dummy mother 2222. Overall these were corrected by segregating them into their own pedigrees.
+
+B. Participant 200016815 (scans 296 and 297) and 200071490 (scans  298 and 299) are suspected to be swapped as they both do NOT appear to be related to their parents, so we swapped their values for "family", "father", and "mother" to swap their pedigrees.
+
+-   How would you recommend following up on these discrepancies "in real
+    life" (instead of just assuming we know what happened and manually
+    changing the data, which is a *bad idea*)?
+
+Double check with the RA(s) to confirm the sample swap. Confirm with the PI if the case of unrelated father/daughter pair can be dropped as they do not have an extended family/mother for a trio.
+
+-   Add a column to scanAnnot called "relationship.changes", which
+    briefly summarizes these "fixes" (add metadata for the column, too).
+
+```{r part3_report_relatedness}
+
+# view the discrepancy data that we generated above...
+discrepany_fids # noted families of error
+discrepancy_list <- discrepancy_ids %>% # noted ids of error
+  unique %>%
+  unlist %>%
+  sort
+discrepancy_list
+# overall discrepancies for...
+# ...for the father/daughter no-relation...
+no_relation <- discrepancies %>% 
+  filter(ID2 == 356) %>% 
+  select(ii) %>% 
+  unique %>% 
+  unlist
+no_relation
+# ...and dummy parents added
+parents
+# and the finale pedigrees with dummies
+ped.final %>% 
+  filter(family == "58")
+ped.final %>% 
+  filter(family == "58-2")
+# ...for the swaps
+swapped_scans <- discrepancies %>% 
+  filter(ID2 != 356) %>% 
+  select(ii) %>% 
+  unique %>% 
+  unlist
+swapped_scans
+
+# add new column "relationship.changes" to scanAnnot
+annotate_relationship_changes <- function(row, swapped, unrelated) {
+  ret_val <- "None"
+  if (row["scanID"] %in% swapped) {
+    ret_val <- "Unswapped"
+  } else if(row["scanID"] %in% unrelated) {
+    ret_val <- "Split Pedigree"
+  }
+  return(
+    ret_val
+  )
+}
+
+relationship_changes <- apply(
+  scanAnnot %>% 
+    getAnnotation(),
+  1,
+  annotate_relationship_changes,
+  c(296, 297, 298, 299),
+  c(355, 356)
+)
+
+scanAnnot$relationship.changes <- relationship_changes
+
+# add annotation
+varMetadata(scanAnnot)["relationship.changes", "labelDescription"] <-
+  "logs manual changes made to scans whose pedigree data was updated"
+
+# double check new column
+scanAnnot %>% 
+  getAnnotation() %>% 
+  filter(scanID %in% discrepancy_list)
+```
+
+## Part 5 - Principal component analysis (PCA) and population substructure
+
+Here you'll be introduced to performing PCA to uncover population
+substructure.
+
+```{r pca, eval=TRUE}
+
+#   For input when we calculate PCA, we want to exclude SNPs from a few
+#   problematic loci
+
+#   Including SNPs from 2q21 (LCT), HLA, 8p23, and 17q21.31 can result PCs that
+#   are highly correlated with these SNPs, which is undesirable
+
+#   GWASTools supplies the positions of these loci in the relevant genome build
+#   in a data frame called pcaSnpFilters.hg18
+
+#   (Note that these loci are on chromosomes 2, 6, 8, and 17, which aren't
+#   included in our genotyping data; we'll proceed in this example as if we had
+#   genome-wide SNPs)
+
+filt <- get(data(pcaSnpFilters.hg18))
+
+#   Next we pull out the chromosomes, positions, and IDs of the SNPs in our
+#   dataset
+
+chrom <- getChromosome(snpAnnot)
+pos <- getPosition(snpAnnot)
+snpID <- getSnpID(snpAnnot)
+snp.filt <- rep(TRUE, length(snpID))
+
+#   We loop over the 4 regions to be excluded and identify which of our SNPs lie
+#   with the endpoints of each
+
+for (f in 1:nrow(filt)) {
+  snp.filt[chrom == filt$chrom[f] &
+             filt$start.base[f] < pos & pos < filt$end.base[f]] <- FALSE
+}
+
+#   Make a vector called snp.sel containing the snpIDs of SNPs not in the
+#   problematic regions; these are the SNPs we'll retain for PCA
+
+snp.sel <- snpID[snp.filt]
+length(snp.sel)
+
+#   (None of our 3300 SNPs get filtered out in this step, since they're not on
+#   chromosomes 2, 6, 8, or 17)
+
+
+### We also want to filter out some samples before running PCA
+
+### Specifically, we shouldn't include duplicates (for subjects with multiple
+### samples, we'll just pick one sample)
+
+#   We'll re-order scanAnnot by missing.e1 so duplicate subjectIDs with a higher
+#   missing rate are marked as duplicates
+
+#   It's important that scanAnnot stays in the same order when we're done
+
+#   Before changing the order, verify that scanAnnot is ordered by increasing
+#   scanID (it is)
+
+allequal(scanAnnot$scanID, sort(scanAnnot$scanID))
+
+#   Now re-order so that duplicate subjectIDs with a higher missing rate are
+#   marked as duplicates
+
+scanAnnot <-
+  scanAnnot[order(scanAnnot$subjectID, scanAnnot$missing.e1), ]
+
+#   Add a new column called "duplicated" indicating who the duplicates are
+
+scanAnnot$duplicated <- duplicated(scanAnnot$subjectID)
+table(scanAnnot$duplicated, useNA = "ifany")
+
+#   Put scanAnnot back in scanID order; this is very important!
+
+scanAnnot <- scanAnnot[order(scanAnnot$scanID), ]
+allequal(scanAnnot$scanID, sort(scanAnnot$scanID))
+
+#   Update the metadata
+
+varMetadata(scanAnnot)["duplicated", "labelDescription"] <-
+  "TRUE for duplicate scan with higher missing.e1"
+
+#   Now make a vector of the scanIDs, leaving out the duplicates with higher
+#   missingness (43 remain)
+
+sample.sel <- scanAnnot$scanID[!scanAnnot$duplicated]
+length(sample.sel)
+
+#   Note that in some applications you would only want to include unrelated
+#   subjects when calculating PCs
+
+#   In this exploratory example, we'll include parents and their children
+#   instead of restricting ourselves to unrelated "founders""
+
+
+### Now we can perform LD pruning, where independent SNPs are chosen using a
+### "sliding window" along the chromosomes
+
+### Re-open the genotypes (after making sure the previous connection is closed)
+
+#close(genoData)
+showfile.gds(closeall = T)
+gdsobj <- snpgdsOpen(genofile)
+
+### Use the snpgdsLDpruning function
+
+#   · sample.id/snp.id are used to retain only the samples/SNPs we picked out
+#     above
+#   · only autosomal SNPs are used
+#   · a MAF threshold of 5% is applied
+#   · the maximum window size we use is 1 megabase
+#   · the LD threshold is set
+
+#   Read the Details section of the help page for snpgdsLDpruning to understand
+#   how the pruning algorithm works
+
+snpset <- snpgdsLDpruning(
+  gdsobj,
+  sample.id = sample.sel,
+  snp.id = snp.sel,
+  autosome.only = TRUE,
+  maf = 0.05,
+  missing.rate = 0.05,
+  method = "corr",
+  slide.max.bp = 10e6,
+  ld.threshold = sqrt(0.1)
+)
+snp.pruned <- unlist(snpset, use.names = FALSE)
+length(snp.pruned)
+
+#   The output is a list the SNPs on each chromosome
+
+#   (Roughly 180 SNPs are retained. Note that this procedure includes a random
+#   process, so the number of SNPs selected will vary)
+
+
+#   Now we calculate the PCs by applying snpgdsPCA, using only the pruned SNPs
+#   and the samples selected earlier
+
+pca <- snpgdsPCA(gdsobj, sample.id = sample.sel, snp.id = snp.pruned)
+dim(pca$eigenvect)
+head(pca$eigenvect)
+
+#   The function returns a list of 8 objects, including the eigenvectors and the
+#   ordered scanIDs
+
+#   32 eigenvectors/PCs have been provided (in order); they're stored in
+#   pca$eigenvect, a 43x32 matrix (43 samples by 32 eigenvectors)
+
+```
+
+## Part 5 - Report (PCAs)
+
+-   How many SNPs were used to calculate PCs?
+
+176 SNPs
+
+-   Make pairwise scatterplots of the first 4 PCs, using different
+    plotting symbols for the two populations, as reported in the "race"
+    variable in scanAnnot.
+
+View below code chunk output
+
+-   Make a parallel coordinate plot for the first 4 plots as well, again
+    distinguishing the plotted lines according to the "race" variable.
+
+View below code chunkoutput
+
+-   What information does the first PC appear to convey?
+
+The first PC appears to convey that we will want to account for ancestry in our GWAS as the different populations are clustering among themselves.
+
+```{r part4_report}
+library(GGally)
+library(patchwork)
+library(cowplot)
+
+# create a copy of pca and add race to it
+pca_with_race <- pca
+scans <- scanAnnot %>% getAnnotation()
+pca_with_race$race <- scans[scans$scanID %in% pca$sample.id,]$race %>% unlist
+
+# create a function to generate the data frames and the PCAs to be used
+generate_pca_dataframe <- function(data, pcax, pcay) {
+  df <- as.data.frame(
+    list(
+      "scanID" = unlist(data$sample.id),
+      "PCAX" = data[["eigenvect"]][,pcax],
+      "PCAY" = data[["eigenvect"]][,pcay],
+      "race" = unlist(data$race)
+    )
+  )
+  return(
+    list(
+      "data" = df,
+      "x" = paste0("PCA ", toString(pcax)),
+      "y" = paste0("PCA ", toString(pcay))
+    )
+  )
+}
+
+# create each set of PCAs to be combined for plotting
+generate_pca_indices <- function(num) {
+  scatterplot_rows <- list()
+  for(i in 1:4) {
+    scatterplot_rows[[i]] <- setdiff(c(1:4), c(i)) %>% sort
+  }
+  return(
+    scatterplot_rows
+  )
+}
+
+# function to generate all PCA dataframes
+generate_all_pca_dataframes <- function(data, indices) {
+  dfs <- list()
+  for(row in 1:length(indices)) {
+    data_row <- list()
+    for(cell in 1:length(indices[[row]])) {
+      data_row[[cell]] <- generate_pca_dataframe(data, row, indices[[row]][[cell]])
+    }
+    dfs[[row]] <- data_row
+  }
+  return(
+    dfs
+  )
+}
+
+# function to plot a single PCA given a plotting function
+plot_pca <- function(pca_data, with_legend = FALSE) {
+  plot <- pca_data[["data"]] %>% 
+    ggplot() +
+    aes(
+      x = PCAX,
+      y = PCAY,
+      color = race
+    ) + 
+    geom_point() +
+    xlab(pca_data[["x"]]) +
+    ylab(pca_data[["y"]]) +
+    theme_minimal()
+  if(!with_legend) {
+    plot <- plot + theme(legend.position = "none")
+  }
+  return(
+    plot
+  )
+}
+
+# function to get the legend
+# how to save the legend:
+# https://stackoverflow.com/questions/12041042/how-to-plot-just-the-legends-in-ggplot2
+get_pca_legend <- function(pca_df) {
+  pca_plot <- plot_pca(pca_df, TRUE)
+  plot_legend <- cowplot::get_legend(pca_plot)
+  return(
+    plot_legend
+  )
+}
+
+# function to plot all PCAs with a given plotting function
+plot_all_PCAs <- function(data) {
+  row_plots <- list()
+  plot_legend <- get_pca_legend(data[[1]][[1]])
+  for(pca_row in 1:length(data)) {
+    row_plot <- NA
+    for(pca_cell in 1:length(data[[pca_row]])) {
+      if (pca_cell == 1) {
+        row_plot <- plot_pca(
+          data[[pca_row]][[pca_cell]]
+        )
+      } else {
+        plot <- plot_pca(
+          data[[pca_row]][[pca_cell]]
+        )
+        row_plot = row_plot | plot
+      }
+    }
+    row_plots[[pca_row]] <- row_plot
+  }
+  final_plot <- row_plots[[1]]
+  for(row in 2:length(row_plots)) {
+    final_plot <- final_plot / row_plots[[row]]
+  }
+  return(
+    final_plot / plot_legend
+  )
+}
+
+# 0. generate the dataframes for each PCA pair of the first 4 PCAs
+# a. generate the rows indices for 4 PCAS
+pca_indices <- generate_pca_indices(4)
+# b. generate the actual dataframes
+pca_dfs <- generate_all_pca_dataframes(pca_with_race, pca_indices)
+
+# 1. pairwise scatterplots of the first 4 PCs
+#   - use different plotting symbols for the two populations "race"
+#   - use geom_point from ggplot
+pca_scatter <- plot_all_PCAs(pca_dfs)
+pca_scatter
+
+# 2. parallel coordinate plot for the first 4 PCs
+#   - use ggparcoord from GGally
+
+# generate a dataframe to use with this function
+pca_df <- pca$eigenvect[,1:4] %>% 
+  as.tibble() %>% 
+  rename(
+    PCA1 = V1,
+    PCA2 = V2,
+    PCA3 = V3,
+    PCA4 = V4
+  )
+pca_df$sampleID <- pca$sample.id
+pca_df$race <- pca_with_race$race
+
+# generate the table
+# https://ggobi.github.io/ggally/reference/ggparcoord.html
+ggparcoord(
+  data = pca_df,
+  columns = 1:4,
+  groupColumn = "race"
+)
+
+```
+
+## Part 6 - Duplicate Sample Discordance
+
+Here we leverage the duplicate samples to assess genotyping errors. If
+the same probe often yields different genotypes for duplicate scans from
+the same subjects, we should probably exclude the genotypes called from
+that probe. We will use the function `duplicateDiscordance`.
+
+```{r discordance, eval=TRUE}
+
+#   First, we should only use high-quality scans to when we judge the probes
+
+scan.excl <- scanAnnot$scanID[scanAnnot$missing.e1 >= 0.05]
+length(scan.excl)
+
+#   (Recall that none of our scans had high missingness, so we don't have to
+#   exclude anyone in this dataset)
+
+#   We also don't want to bother testing for discordance in SNPs that are 100%
+#   missing, so we exclude those, too
+
+snp.excl <- snpAnnot$snpID[snpAnnot$missing.n1 == 1]
+length(snp.excl)
+
+#   Get the genotype data (make sure the connection to the file is closed before
+#   reopening it)
+
+#close(genoData)
+showfile.gds(closeall = T, verbose = T)
+genofile <-
+  system.file("extdata", "illumina_geno.gds", package = "GWASdata")
+genoGDS <- GdsGenotypeReader(genofile)
+
+#   Attach the annotation to it (note that the sex/relatedness information were
+#   "fixed" above)
+
+genoData <-
+  GenotypeData(genoGDS, snpAnnot = snpAnnot, scanAnnot = scanAnnot)
+
+#   Now we use the dupdisc function to calculate the discordance for each SNP
+#   (while excluding any low-quality scans and 100%-missing SNPs)
+
+dupdisc <-
+  duplicateDiscordance(
+    genoData,
+    subjName.col = "subjectID",
+    scan.exclude = scan.excl,
+    snp.exclude = snp.excl
+  )
+
+#   The function returns a list of 3 objects: discordance.by.snp,
+#   discordance.by.subject, and correlation.by.subject
+
+names(dupdisc)
+dim(dupdisc$discordance.by.snp)
+head(dupdisc$discordance.by.snp)
+
+#   discordance.by.snp has a row for each SNP, detailing the number of
+#   duplicate-pairs of scans observed for that SNP, the number of discordant
+#   gentoypes observed among those pairs, and the discordance rate
+
+length(dupdisc$discordance.by.subject)
+
+#   discordance.by.subject is a list of matrices. For each subject with
+#   duplicate scans, the matrix shows the discordance between the pairs of scans
+#   (i.e., at what proportion of SNPs do two scans from the same person have
+#   different genotypes?)
+
+dupdisc$discordance.by.subject[[1]]
+
+#   For the first subject in dupdisc$discordance.by.subject (scans 280/281), it
+#   looks like the genotypes agreed for all the SNPs
+
+dupdisc$discordance.by.subject[[2]]
+
+#   For the second subject (scans 282/283), the discordance rate was
+#   0.0003265839
+
+
+#   Save a summary of this information by merging the discordances into the SNP
+#   annotation
+
+snpAnnot$dummy <- 1:nrow(pData(snpAnnot))
+pData(snpAnnot) <-
+  merge(
+    x = pData(snpAnnot),
+    y = dupdisc$discordance.by.snp[, c("snpID", "discordant")],
+    all.x = T,
+    all.y = F
+  )
+
+#   Make sure the order of the SNPs is maintained
+
+pData(snpAnnot) <- pData(snpAnnot)[order(snpAnnot$dummy), ]
+
+```
+
+## Part 6 - Report
+
+Briefly explain the purpose of this step and what it means to check for
+discordant genotypes. Summarize the results. Be sure to answer the
+following:
+
+The purpose of this step is to ensure that we are getting consistent genotyping across intended duplicates. In the case of our genotyping results not being consistent, then we typically filter out these SNPs.
+
+-   How many SNPs are discordant in at least one duplicate-pair?
+
+28
+
+-   What's the maximum number of discordances seen for any SNP?
+
+2 -> for SNPs:
+1026261
+1028039
+1070217
+
+-   What's the median discordance rate? What's the maximum discordance
+    rate?
+
+median: 0
+max: 0.07407407
+
+-   Decide and explicitly state the threshold, n, for filtering out SNPs
+    based on discordance (i.e., SNPs with dupdisc\$discordance.by.snp
+    \>= n will be removed)
+    
+30 ≤ discordant pairs < 75, so n ≥ 1 will be our SNP filtering threshold based on discordance.
+
+-   You may find it helpful to call the function
+    duplicateDiscordanceProbability(npair=34). Read the documentation
+    for this function.
+
+-   Of the SNPs pass that passed the missing.n2 filter (missing.n2 \<
+    0.05), how many SNPs pass/fail the discordance threshold?
+
+fail: 21
+pass: 3074
+
+-   Of the SNPs with missing.n2 \< 0.05, make a histogram of the
+    discordance rate
+
+View the output of the below code chunk.
+
+-   Make sure you add a new column to snpAnnot called failed.dup.disc
+    ("pass" if the SNP had \>=n discordant calls, "fail" if it failed,
+    "untested" if it was one of the high-missingness SNPs that we
+    excluded); update the metadata
+
+```{r part5_report}
+
+#-   How many SNPs are discordant in at least one duplicate-pair?
+# these appear to be 1 is discordant...just sum them
+sum(dupdisc$discordance.by.snp$discordant)
+# overall discordant calls
+sum(dupdisc$discordance.by.snp$n.disc.subj)
+
+#-   What's the maximum number of discordances seen for any SNP?
+max_disc_for_any_snp <- max(dupdisc$discordance.by.snp$n.disc.subj)
+max_disc_for_any_snp
+dupdisc$discordance.by.snp %>% 
+  filter(n.disc.subj == max_disc_for_any_snp)
+
+#-   What's the median discordance rate? What's the maximum discordance rate?
+dupdisc$discordance.by.snp %>%
+  summarise(
+    med = median(discord.rate),
+    max = max(discord.rate)
+  )
+
+#-   You may find it helpful to call the function duplicateDiscordanceProbability(npair=34)
+duplicateDiscordanceProbability(npair=34)
+
+#-   Make sure you add a new column to snpAnnot called failed.dup.disc ("pass" if the SNP had \>=n discordant calls, "fail" if it failed, "untested" if it was one of the high-missingness SNPs that we excluded); update the metadata
+failed_dup_disc <- snpAnnot %>% 
+  getAnnotation() %>% 
+  mutate(
+    failed.dup.disc = 
+      if_else(
+        is.na(discordant),
+        "untested",
+        if_else(
+          discordant > 0,
+          "fail",
+          "pass"
+        )
+      )
+  ) %>% 
+  select(failed.dup.disc) %>% 
+  unlist()
+snpAnnot$failed.dup.disc <- failed_dup_disc
+
+varMetadata(snpAnnot)["failed.dup.disc", "labelDescription"] <-
+  "\"pass\" if the SNP had >=n discordant calls, \"fail\" if it failed, \"untested\" if it was one of the high-missingness SNPs that we excluded"
+
+#-   Of the SNPs pass that passed the missing.n2 filter (missing.n2 \<0.05), how many SNPs pass/fail the discordance threshold?
+pass_missing <- snpAnnot %>% 
+  getAnnotation() %>% 
+  filter(missing.n2 < 0.05)
+pass_missing %>% 
+  group_by(failed.dup.disc) %>% 
+  summarise(
+    n = n()
+  )
+
+#-   Of the SNPs with missing.n2 \< 0.05, make a histogram of the discordance rate
+pass_missing_w_disc <- pass_missing %>% 
+  left_join(
+    dupdisc$discordance.by.snp,
+    by = "snpID"
+  )
+pass_missing_w_disc %>% 
+  ggplot() +
+  aes(
+    x = discord.rate
+  ) +
+  geom_histogram(binwidth = 0.01)
+
+```
+
+## Part 7 - Hardy-Weinberg Equilibrium (HWE) testing
+
+Deviations from HWE can indicate poor genotyping. Here you will
+appropriately test for departures from HWE in the data using `exactHWE`
+(which applies Fisher's exact test).
+
+```{r hwe, eval=TRUE}
+
+#   The test we'll use for HWE will assume independent observations
+
+#   Therefore we should include only one scan from each subject
+
+#   We should also include only "founders" (for this example, that means
+#   excluding the children, whose genotypes aren't independent of their
+#   parents')
+
+#   The nonfounders are the individuals who have a mother or father in the
+#   pedigree
+
+head(pData(scanAnnot)[, c("father", "mother")])
+nonfounders <- scanAnnot$father != 0 & scanAnnot$mother != 0
+table(nonfounders)
+
+#   HWE is sensitive to population stratification (A SNP can be in HWE in each
+#   of two populations, but out of HWE in the combined population)
+
+#   Therefore in this example we'll focus on HWE in just one population group,
+#   the "CEU" group
+
+#   So we'll exclude populations other than CEU, nonfounders, and duplicates
+#   (recall tha that the "duplicated" variable was defined to include the scan
+#   with better missingness for each subject)
+
+scan.excl <-
+  scanAnnot$scanID[scanAnnot$race != "CEU" |
+                     nonfounders | scanAnnot$duplicated]
+length(scan.excl)
+
+#   Now we use exactHWE to calculate HWE statistics
+
+#   We do this separately for the sex chromosomes
+
+chr <- getChromosome(genoData)
+auto <- range(which(chr %in% 1:22))
+X <- range(which(chr == 23))
+
+#   exactHWE takes snpStart/snpEnd arguments; we use these to identify the
+#   indices corresponding to autosomal/sex chromosome SNPs
+
+hwe <-
+  exactHWE(
+    genoData,
+    scan.exclude = scan.excl,
+    snpStart = auto[1],
+    snpEnd = auto[2]
+  )
+hweX <-
+  exactHWE(
+    genoData,
+    scan.exclude = scan.excl,
+    snpStart = X[1],
+    snpEnd = X[2]
+  )
+
+#   We use the scan.exclude argument to exclude non-CEU, non-founders, and duplicates
+
+#   exactHWE has returned a data frame of HWE statistics for each SNP; read the help page to see what the columns are
+
+#   Attach the two data frames
+
+hwe <- rbind(hwe, hweX)
+names(hwe)
+#close(genoData)
+
+#   Check on sample sizes for autosomes
+
+hwe$N <- hwe$nAA + hwe$nAB + hwe$nBB
+summary(hwe$N[is.element(hwe$chr, 1:22)])
+
+#   ... and for the X chromosome
+
+summary(hwe$N[is.element(hwe$chr, 23)])
+
+#   Notice there are some missing p-values for the autosomes
+
+#   ... and for X
+
+#   We can view some of the genotype counts
+
+#   The first SNP appears to be 100% missing, and the second is monomorphic
+#   (i.e., MAF=0)
+
+#   (recall that we didn't filter out SNPs here)
+
+hwe$pval[1:10]
+sum(is.na(hwe$pval[hwe$chr == 23]))
+head(hwe[, c("nAA", "nAB", "nBB")])
+
+#   Now we want to inspect deviation from HWE
+
+#   We can use Q-Q plots to help with this
+
+#   We should exclude monomorphic SNPs
+
+hwe.0 <- hwe[hwe$MAF > 0, ]
+dim(hwe.0)
+
+#   Only keep the autosomal SNPs for first plot
+
+pval <- hwe.0$pval[is.element(hwe.0$chr, 1:22)]
+length(pval)
+
+#   Double-check that there are no missing p-values remaining
+
+pval <- pval[!is.na(pval)]
+length(pval)
+
+#   Similarly, get the p-values for the X-chromosome
+
+pval.x <- hwe.0$pval[is.element(hwe.0$chr, 23)]
+length(pval.x)
+pval.x <- pval.x[!is.na(pval.x)]
+length(pval.x)
+
+#   Now make Q-Q plots
+
+par(mfrow = c(2, 2))
+qqPlot(pval = pval,
+       truncate = FALSE,
+       main = "Autosomes, all")
+qqPlot(pval = pval,
+       truncate = TRUE,
+       main = "Autosomes, truncated")
+qqPlot(pval = pval.x,
+       truncate = FALSE,
+       main = "X chromosome, all")
+qqPlot(pval = pval.x,
+       truncate = TRUE,
+       main = "X chromosome, truncated")
+par(mfrow = c(1, 1))
+
+```
+
+## Part 7 - Report
+
+Briefly explain the purpose of HWE testing. In describing your results
+for this step, answer the folowing:
+
+Overall, we generally presume that genotypes will follow HWE, so here we are looking to drop any that do not.
+
+-   How do you choose what subjects to include for HWE testing? How many
+    were used here?
+
+Here, we focused solely on the CEU population as HWE testing is sensitive to population stratification. We also only included founders as we must presume that all samples are independent and in having parent-offspring triads we know that this is not the case.
+
+-   Interpret the Q-Q plots. Do any SNPs appear to be strongly out of
+    HWE? Which SNPs? What are the lowest p-values?
+    
+SNPs appear to be strongly out of HWE for the X chromosome and autosomes. These are the SNPs that do not fall on the line (do not have an observed p-value near their expected p-value). The lowest p-values are the SNPs higher on the y-axis. Overall, the X chromosome appears much worse off.
+
+-   For the autosomal SNPs, make a plot of -log10(p-value) vs MAF. Make
+    another such plot for the X chromosome.
+
+See output of the below code chunk.
+
+-   What p-value will you use for filtering our SNPs with low HWE? Of
+    the SNPs with missing.n2 \< 0.05, how many will be retained/removed?
+
+See output of the below code chunk.
+retained	2454			
+removed	1			
+NA	640	
+
+-   Add the HWE p-values to the SNP annotation (and update the metadata)
+
+See output of the below code chunk.
+
+```{r part6_report}
+
+# -   For the autosomal SNPs, make a plot of -log10(p-value) vs MAF.
+hwe.auto <- hwe %>% 
+  filter(chr %in% 1:22) %>% 
+  drop_na()
+hwe.auto %>% 
+  ggplot() +
+  aes(
+    x = MAF,
+    y = -log10(pval)
+  ) +
+  geom_point()
+
+# -   Make another such plot for the X chromosome.
+hwe.x <- hwe %>% 
+  filter(chr == 23) %>% 
+  drop_na()
+hwe.x %>% 
+  ggplot() +
+  aes(
+    x = MAF,
+    y = -log10(pval)
+  ) +
+  geom_point()
+
+# -   Add the HWE p-values to the SNP annotation (and update the metadata)
+pval_threshold <- 10^(-4)
+with_pval <- snpAnnot %>% 
+  getAnnotation() %>% 
+  full_join(
+    hwe,
+    by = "snpID"
+  ) %>%
+  select(pval) %>% 
+  unlist
+snpAnnot$pval <- with_pval
+
+varMetadata(snpAnnot)["pval", "labelDescription"] <-
+  "NA if p-value not calculate, otherwise the calculated HWE p-value."
+
+# -   What p-value will you use for filtering our SNPs with low HWE?
+# Of the SNPs with missing.n2 \< 0.05, how many will be retained/removed?
+pval_threshold
+final <- snpAnnot %>% 
+  getAnnotation() %>% 
+  filter(missing.n2 < 0.05)
+final %>%
+  mutate(
+    pval_filter = if_else(pval > pval_threshold, "retained", "removed")
+  ) %>% 
+  group_by(pval_filter) %>% 
+  summarise(
+    n = n()
+  )
+completed <- snpAnnot %>% 
+  getAnnotation() %>% 
+  filter(missing.n2 < 0.05) %>% 
+  filter(pval > pval_threshold | is.na(pval)) %>% 
+  filter(failed.dup.disc != "fail")
+```
+
+```{r}
+# How many SNPs are there?
+n_snp <- completed %>%  
+  nrow()
+print(
+  paste0(
+    "There are ",
+    n_snp,
+    " SNPs."
+  )
+)
+
+# Which chromosomes are represented? How many SNPs are on each?
+print("For all calls:")
+completed %>% 
+  select(chromosome, snpID) %>% 
+  unique() %>% 
+  group_by(chromosome) %>% 
+  summarize(
+    n = n()
+  )
+```
