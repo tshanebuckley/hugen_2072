@@ -1,0 +1,35 @@
+
+# load all modules
+module load gcc/8.2.0
+Shell debugging temporarily silenced: export LMOD_SH_DBG_ON=1 for Lmod's output
+Shell debugging restarted
+module load bwa/0.7.17
+Shell debugging temporarily silenced: export LMOD_SH_DBG_ON=1 for Lmod's output
+Shell debugging restarted
+module load samtools/1.22.1
+Shell debugging temporarily silenced: export LMOD_SH_DBG_ON=1 for Lmod's output
+Shell debugging restarted
+
+# initial setup of variables
+scratch=$SLURM_SCRATCH
+outdir=$SLURM_SUBMIT_DIR/p3/prod
+mkdir -p $outdir
+p3=/ix1/hugen2072-2026s/p3
+cram1h=$outdir/cram1.cram
+cram2h=$outdir/cram2.cram
+cram1=$scratch/cram1.cram
+cram2=$scratch/cram2.cram
+
+# move the cram files to scratch and index them
+cp $cram1h $cram1
+cp $cram2h $cram2
+
+# index the files now in scratch
+samtools index $cram1
+samtools index $cram2
+
+# calculate the qc-passed read depth
+samtools coverage $cram1 -o $outdir/qc.coverage
+
+# calculate the mapped read depth
+samtools coverage $cram2 -o $outdir/mapped.coverage
