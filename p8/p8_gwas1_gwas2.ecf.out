@@ -1,0 +1,432 @@
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+|       EasyQC	       |    v23.8   |        05/June/2020     |
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+|  (C) 2013 Thomas Winkler, GNU General Public License, v3   |
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+|  For bug-report, please e-mail:                            |
+|  thomas.winkler@klinik.uni-regensburg.de                   |
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
++++++
+Starting EasyX: 2026-04-30 07:26:00.142826 
+Running script  p8_gwas1_gwas2.ecf ...
+
++++++
+Getting list of input files ...
+Using:
+   +  /ix1/hugen2072-2026s/p8/p8_study2_gwas_results.txt 
+   +  /ix1/hugen2072-2026s/p8/p8_study1_gwas_results.txt 
+
++++++
+Default output path is 
+/ihome/adombrovski/tsb31/p8
+
++++++
+Performing validity check on 10 rows from each file :
+
+   +  study2 -> OK
+   +  study1 -> OK
+ Passed validity check!
+
++++++
+Processing file: study2 
+   + Reading  /ix1/hugen2072-2026s/p8/p8_study2_gwas_results.txt ... 
+	** Data reading time: 0.15 Minutes
+	** Current memory allocated: 2484616 
+   + CLEAN 
+      --rcdClean is.na(EFFECT_ALLELE)&is.na(OTHER_ALLELE) 
+      --strCleanName numDrop_Missing_Alleles
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2490344 
+   + CLEAN 
+      --rcdClean is.na(PVAL) 
+      --strCleanName numDrop_Missing_P
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2490344 
+   + CLEAN 
+      --rcdClean is.na(BETA) 
+      --strCleanName numDrop_Missing_BETA
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2490344 
+   + CLEAN 
+      --rcdClean is.na(SE) 
+      --strCleanName numDrop_Missing_SE
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2490344 
+   + CLEAN 
+      --rcdClean is.na(EAF) 
+      --strCleanName numDrop_Missing_EAF
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2490344 
+   + CLEAN 
+      --rcdClean is.na(N) 
+      --strCleanName numDrop_Missing_N
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2490344 
+   + CLEAN 
+      --rcdClean PVAL<0|PVAL>1 
+      --strCleanName numDrop_invalid_PVAL
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2490344 
+   + CLEAN 
+      --rcdClean SE<=0|SE==Inf|SE>=10 
+      --strCleanName numDrop_invalid_SE
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2499892 
+   + CLEAN 
+      --rcdClean abs(BETA)>=10 
+      --strCleanName numDrop_invalid_BETA
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2499892 
+   + CLEAN 
+      --rcdClean EAF<0|EAF>1 
+      --strCleanName numDrop_invalid_EAF
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2476592 
+   + EDITCOL 
+      --rcdEditCol signif(EAF,4) 
+      --colEdit EAF
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2476592 
+   + EDITCOL 
+      --rcdEditCol signif(BETA,4) 
+      --colEdit BETA
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2476592 
+   + EDITCOL 
+      --rcdEditCol signif(SE,4) 
+      --colEdit SE
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2476592 
+   + EDITCOL 
+      --rcdEditCol signif(PVAL,4) 
+      --colEdit PVAL
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2476592 
+   + CLEAN 
+      --rcdClean (EAF==0)|(EAF==1) 
+      --strCleanName numDrop_Monomorph
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2495688 
+   + ADDCOL 
+      --rcdAddCol signif(2*pmin(EAF,1-EAF)*N,4) 
+      --colOut MAC
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2507144 
+   + HARMONIZEALLELES 
+      --colInA1 OTHER_ALLELE 
+      --colInA2 EFFECT_ALLELE
+	** Function evaluation time: 0.01 Minutes
+	** Current memory allocated: 2627448 
+   + CREATECPTID 
+      --colInMarker VARID 
+      --colInA1 EFFECT_ALLELE 
+      --colInA2 OTHER_ALLELE 
+      --colInChr CHR 
+      --colInPos POS 
+      --blnUseInMarker 0
+	** Function evaluation time: 0.02 Minutes
+	** Current memory allocated: 2615992 
+   + CLEANDUPLICATES 
+      --colInMarker cptid 
+      --strMode samplesize 
+      --colN N
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2615992 
+   + MERGE 
+      --fileRef /ix1/hugen2072-2026s/p8/p8_snp_reference.txt 
+      --acolIn cptid;a1;a2;a1_af 
+      --acolInClasses character;character;character;double 
+      --colInMarker cptid 
+      --colRefA1 a1 
+      --colRefA2 a2 
+      --strRefSuffix .ref 
+      --colRefMarker cptid 
+      --blnWriteNotInRef 1 
+      --strSeparator SPACE
+   + Reading  /ix1/hugen2072-2026s/p8/p8_snp_reference.txt ... 
+	** Function evaluation time: 0.15 Minutes
+	** Current memory allocated: 2608528 
+   + ADJUSTALLELES 
+      --colRefA1 a1.ref 
+      --colRefA2 a2.ref 
+      --colInA1 EFFECT_ALLELE 
+      --colInA2 OTHER_ALLELE 
+      --colInFreq EAF 
+      --colInBeta BETA 
+      --blnMetalUseStrand 0 
+      --blnRemoveMismatch 1 
+      --blnRemoveInvalid 1
+	** Function evaluation time: 0.03 Minutes
+	** Current memory allocated: 2779248 
+   + AFCHECK 
+      --colInFreq EAF 
+      --colRefFreq a1_af.ref 
+      --numLimOutlier 0.2 
+      --blnPlotAll 1
+	** Function evaluation time: 0.01 Minutes
+	** Current memory allocated: 2779640 
+   + GETCOLS 
+      --acolOut cptid;CHR;POS;STRAND;EFFECT_ALLELE;OTHER_ALLELE;EAF;BETA;SE;PVAL;N;MAC
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2779640 
+   + WRITE 
+      --strPrefix CLEANED. 
+      --strMissing . 
+      --strMode gz
+	** Function evaluation time: 0.11 Minutes
+	** Current memory allocated: 2648320 
+   + PZPLOT 
+      --colBeta BETA 
+      --colSe SE 
+      --colPval PVAL
+	** Function evaluation time: 0.06 Minutes
+	** Current memory allocated: 2798476 
+   + QQPLOT 
+      --acolQQPlot PVAL 
+      --numPvalOffset 0.05 
+      --strMode subplot
+	** Function evaluation time: 0.07 Minutes
+	** Current memory allocated: 2798476 
+   + CALCULATE 
+      --rcdCalc max(N,na.rm=T) 
+      --strCalcName N_max
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + GC 
+      --colPval PVAL 
+      --blnSuppressCorrection 1
+	** Function evaluation time: 0.01 Minutes
+	** Current memory allocated: 2798476 
+   + RPLOT 
+      --rcdRPlotX N_max 
+      --rcdRPlotY Lambda.PVAL.GC 
+      --arcdAdd2Plot abline(h=1,col='orange');abline(h=1.1,col='red') 
+      --strAxes lim(0,NULL,0,NULL) 
+      --strPlotName GC-PLOT
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CALCULATE 
+      --rcdCalc median(SE,na.rm=T) 
+      --strCalcName SE_median
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CALCULATE 
+      --rcdCalc median(1/sqrt(2*EAF*(1-EAF)), na.rm=T) 
+      --strCalcName c_trait_transf
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + RPLOT 
+      --rcdRPlotX sqrt(N_max) 
+      --rcdRPlotY c_trait_transf/SE_median 
+      --arcdAdd2Plot abline(0,1,col='orange') 
+      --strAxes zeroequal 
+      --strPlotName SEN-PLOT
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+** File processing time: 1.1 Minutes
+
++++++
+Processing file: study1 
+   + Reading  /ix1/hugen2072-2026s/p8/p8_study1_gwas_results.txt ... 
+	** Data reading time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEAN 
+      --rcdClean is.na(EFFECT_ALLELE)&is.na(OTHER_ALLELE) 
+      --strCleanName numDrop_Missing_Alleles
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEAN 
+      --rcdClean is.na(PVAL) 
+      --strCleanName numDrop_Missing_P
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEAN 
+      --rcdClean is.na(BETA) 
+      --strCleanName numDrop_Missing_BETA
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEAN 
+      --rcdClean is.na(SE) 
+      --strCleanName numDrop_Missing_SE
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEAN 
+      --rcdClean is.na(EAF) 
+      --strCleanName numDrop_Missing_EAF
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEAN 
+      --rcdClean is.na(N) 
+      --strCleanName numDrop_Missing_N
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEAN 
+      --rcdClean PVAL<0|PVAL>1 
+      --strCleanName numDrop_invalid_PVAL
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEAN 
+      --rcdClean SE<=0|SE==Inf|SE>=10 
+      --strCleanName numDrop_invalid_SE
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEAN 
+      --rcdClean abs(BETA)>=10 
+      --strCleanName numDrop_invalid_BETA
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEAN 
+      --rcdClean EAF<0|EAF>1 
+      --strCleanName numDrop_invalid_EAF
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + EDITCOL 
+      --rcdEditCol signif(EAF,4) 
+      --colEdit EAF
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + EDITCOL 
+      --rcdEditCol signif(BETA,4) 
+      --colEdit BETA
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + EDITCOL 
+      --rcdEditCol signif(SE,4) 
+      --colEdit SE
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + EDITCOL 
+      --rcdEditCol signif(PVAL,4) 
+      --colEdit PVAL
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEAN 
+      --rcdClean (EAF==0)|(EAF==1) 
+      --strCleanName numDrop_Monomorph
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + ADDCOL 
+      --rcdAddCol signif(2*pmin(EAF,1-EAF)*N,4) 
+      --colOut MAC
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + HARMONIZEALLELES 
+      --colInA1 OTHER_ALLELE 
+      --colInA2 EFFECT_ALLELE
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CREATECPTID 
+      --colInMarker VARID 
+      --colInA1 EFFECT_ALLELE 
+      --colInA2 OTHER_ALLELE 
+      --colInChr CHR 
+      --colInPos POS 
+      --blnUseInMarker 0
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + CLEANDUPLICATES 
+      --colInMarker cptid 
+      --strMode samplesize 
+      --colN N
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + MERGE 
+      --fileRef /ix1/hugen2072-2026s/p8/p8_snp_reference.txt 
+      --acolIn cptid;a1;a2;a1_af 
+      --acolInClasses character;character;character;double 
+      --colInMarker cptid 
+      --colRefA1 a1 
+      --colRefA2 a2 
+      --strRefSuffix .ref 
+      --colRefMarker cptid 
+      --blnWriteNotInRef 1 
+      --strSeparator SPACE
+	** Function evaluation time: 0.01 Minutes
+	** Current memory allocated: 2798476 
+   + ADJUSTALLELES 
+      --colRefA1 a1.ref 
+      --colRefA2 a2.ref 
+      --colInA1 EFFECT_ALLELE 
+      --colInA2 OTHER_ALLELE 
+      --colInFreq EAF 
+      --colInBeta BETA 
+      --blnMetalUseStrand 0 
+      --blnRemoveMismatch 1 
+      --blnRemoveInvalid 1
+	** Function evaluation time: 0.01 Minutes
+	** Current memory allocated: 2798476 
+   + AFCHECK 
+      --colInFreq EAF 
+      --colRefFreq a1_af.ref 
+      --numLimOutlier 0.2 
+      --blnPlotAll 1
+	** Function evaluation time: 0.02 Minutes
+	** Current memory allocated: 2798476 
+   + GETCOLS 
+      --acolOut cptid;CHR;POS;STRAND;EFFECT_ALLELE;OTHER_ALLELE;EAF;BETA;SE;PVAL;N;MAC
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + WRITE 
+      --strPrefix CLEANED. 
+      --strMissing . 
+      --strMode gz
+	** Function evaluation time: 0.03 Minutes
+	** Current memory allocated: 2798476 
+   + PZPLOT 
+      --colBeta BETA 
+      --colSe SE 
+      --colPval PVAL
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2798476 
+   + QQPLOT 
+      --acolQQPlot PVAL 
+      --numPvalOffset 0.05 
+      --strMode subplot
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2758476 
+   + CALCULATE 
+      --rcdCalc max(N,na.rm=T) 
+      --strCalcName N_max
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2758476 
+   + GC 
+      --colPval PVAL 
+      --blnSuppressCorrection 1
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2758476 
+   + RPLOT 
+      --rcdRPlotX N_max 
+      --rcdRPlotY Lambda.PVAL.GC 
+      --arcdAdd2Plot abline(h=1,col='orange');abline(h=1.1,col='red') 
+      --strAxes lim(0,NULL,0,NULL) 
+      --strPlotName GC-PLOT
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2758476 
+   + CALCULATE 
+      --rcdCalc median(SE,na.rm=T) 
+      --strCalcName SE_median
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2758476 
+   + CALCULATE 
+      --rcdCalc median(1/sqrt(2*EAF*(1-EAF)), na.rm=T) 
+      --strCalcName c_trait_transf
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2758476 
+   + RPLOT 
+      --rcdRPlotX sqrt(N_max) 
+      --rcdRPlotY c_trait_transf/SE_median 
+      --arcdAdd2Plot abline(0,1,col='orange') 
+      --strAxes zeroequal 
+      --strPlotName SEN-PLOT
+	** Function evaluation time: 0 Minutes
+	** Current memory allocated: 2758476 
+** File processing time: 0.54 Minutes
+
+
++++++
+Succesfully finished EasyX: 2026-04-30 07:27:41.472718 
+Elapsed time: 1.69 Minutes 
+Maximum memory allocated: 2798476 
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+

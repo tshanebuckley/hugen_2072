@@ -1,0 +1,33 @@
+# Begin script 
+
+# Set the method to use
+SCHEME STDERR
+STDERR SE
+GENOMICCONTROL ON
+
+# Describe and process the results from study 1
+MARKER		cptid
+ALLELE		EFFECT_ALLELE	OTHER_ALLELE
+PVALUE		PVAL
+WEIGHT		N
+EFFECT		BETA
+SEPARATOR  TAB
+COLUMNCOUNTING LENIENT
+PROCESS /ihome/adombrovski/tsb31/p8/CLEANED.study1.gz
+
+
+# Describe and process from study 2
+MARKER		cptid
+ALLELE		EFFECT_ALLELE	OTHER_ALLELE
+PVALUE		PVAL
+WEIGHT		N
+EFFECT		BETA
+SEPARATOR  TAB
+COLUMNCOUNTING LENIENT
+PROCESS /ihome/adombrovski/tsb31/p8/CLEANED.study2.gz
+
+
+# Run the meta-analysis, calculate heterogeneity, and then quit METAL
+ANALYZE HETEROGENEITY
+QUIT
+

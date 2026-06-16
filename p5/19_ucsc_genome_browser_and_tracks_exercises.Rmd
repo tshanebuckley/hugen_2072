@@ -1,0 +1,260 @@
+---
+title: "UCSC Genome Browser exercises"
+output: html_document
+date: "2026-03-25"
+---
+
+# Setup
+
+The data we'll work with are summary statistics from a UK BioBank GWAS of liking cheese.
+
+-   The dataset is rather large, so log on to the cluster at <http://hugen.crc.pitt.edu>
+
+-   Copy this .Rmd file to the cluster using the Files menu
+
+-   Start an RStudio Server job
+
+    -   set the memory to 12 GB
+
+    -   put `hugen2073-2026s` in the Account box
+
+    -   open this .Rmd
+
+# Data
+
+The data are embedded in a VCF located at `/ix1/hugen2073-2026s/cheese_gwas/ukb-b-1489.vcf`.
+
+Here are the packages we'll need:
+
+```{r}
+library(vcfR)
+library(tidyverse)
+library(qqman)
+library(png)
+library(data.table)
+library(GenomicRanges)
+```
+
+Now let's read in the VCF with the `vcfR` package. According to the metadata lines, it should contain some summary statistics. Note that for some reason, only `ES`, `SE`, `LP`, `AF`, and `ID` actually seem to occur in the file. 
+
+```{r}
+# The read.vcfR command takes a minute
+vcf_path <- "/ix1/hugen2073-2026s/cheese_gwas/ukb-b-1489.vcf"
+system(paste0("grep FORMAT ", vcf_path))
+vcf <- read.vcfR(vcf_path, verbose = FALSE)
+```
+
+Right now `vcf` is not in a useable format. We need to extract all the useful information into a data frame. First we get the fixed fields (the first 8 columns of a VCF) with the `getFIX` function.
+
+```{r}
+# Fixed fields: CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO
+fix_df <- as.data.frame(getFIX(vcf), stringsAsFactors = FALSE)
+fix_df$CHROM <- as.numeric(fix_df$CHROM)
+fix_df$POS <- as.numeric(fix_df$POS)
+dim(fix_df)
+head(fix_df)
+```
+
+Now we'll extract the GWAS statistics: effect size, standard error, log-transformed p-value, within-study allele frequency, and ID. We use the `extract.gt` function.
+
+```{r}
+# Extract FORMAT-based values for the one sample column
+# This takes a minute
+es <- extract.gt(vcf, element = "ES", as.numeric = TRUE, IDtoRowNames = FALSE)
+se <- extract.gt(vcf, element = "SE", as.numeric = TRUE, IDtoRowNames = FALSE)
+lp <- extract.gt(vcf, element = "LP", as.numeric = TRUE, IDtoRowNames = FALSE)
+af <- extract.gt(vcf, element = "AF", as.numeric = TRUE, IDtoRowNames = FALSE)
+id2 <- extract.gt(vcf, element = "ID", IDtoRowNames = FALSE)
+rm(vcf)
+# Since there is only one sample, convert from matrix to vector
+# Convert -log(p) back to p
+fix_df$ES <- as.vector(es)
+fix_df$SE <- as.vector(se)
+fix_df$LP <- as.vector(lp)
+fix_df$AF_study <- as.vector(af)
+fix_df$ID_format <- as.vector(id2)
+rm(es, se, lp, af, id2)
+fix_df$P <- 10^(-fix_df$LP)
+fix_df <- fix_df %>% select(-LP)
+head(fix_df)
+```
+
+Now let's look at the Q-Q plot. We'll make one with all the data and one with a 5% allele frequency filter. To speed up rendering of the plot, we'll save the figure as a .png and then open that image file.
+
+```{r}
+
+# Function to calculate lambda
+lambda <- function(pvector) {
+  median(qchisq(1 - pvector, df = 1)) / qchisq(0.5, df = 1)
+}
+
+# Make two QQ plots: one raw and one filtered
+# This takes a minute
+png("~/cheese.png")
+par(mfrow=c(1,2))
+fix_df %>%
+  pull(P) %>% 
+  qq(.,main=paste0("No filtering: lambda=",round(lambda(.),2)))
+
+fix_df %>%
+  filter(AF_study >= 0.05) %>% 
+  pull(P) %>% 
+  qq(.,main=paste0("5% MAF filter: lambda=",round(lambda(.),2)))
+par(mfrow=c(1,1))
+dev.off()
+
+# Open the image
+img <- readPNG("~/cheese.png")
+plot.new()
+rasterImage(img, 0, 0, 1, 1)
+```
+
+Evidently, the results are quite inflated, even after filtering. We'll proceeed anyway.
+
+Let's also make some Manhattan plots. To speed up plotting, we'll filter out SNPs with P > 0.01.
+
+```{r}
+fix_df %>% 
+  filter(P < 0.01) %>%
+  manhattan(., chr="CHROM", bp="POS", p="P", snp="ID", annotateTop = TRUE, annotatePval=10^(-10))
+```
+
+Let's look a little more closely at chromosome 2.
+
+```{r}
+fix_df %>% 
+  filter(P < 0.01) %>%
+  filter(CHROM==2) %>% 
+  manhattan(., chr="CHROM", bp="POS", p="P", snp="ID", annotateTop = TRUE, annotatePval=10^(-25))
+```
+
+Let's zoom in a little more on the top SNP.
+
+```{r}
+# Look at most significant results
+fix_df %>%
+  arrange(P) %>% 
+  head()
+
+# What's the rsID of the very top SNP?
+top_snp <- fix_df %>%
+  arrange(P) %>% 
+  head(.,n=1) %>% 
+  pull(ID)
+
+# What are its coordinates?
+top_chr <- fix_df$CHROM[fix_df$ID==top_snp]
+top_pos <- fix_df$POS[fix_df$ID==top_snp]
+
+
+# Look 1 Mb up- and down-stream
+lz_data <- fix_df %>% 
+  filter(CHROM==top_chr & abs(POS-top_pos) < 10^6)
+
+# Plot
+lz_data %>%
+  ggplot() +
+  geom_point(aes(x=POS, y=-log10(P)))
+
+```
+
+# Task 1
+
+First, make a bedGraph file for this region
+
+- The file should be named `cheese.bedGraph`
+
+- Only include SNPs with `P < 1e-3` and within the 2 MB region centered around the top SNP
+
+- The continuous variable should be `-log10(P)`
+
+- The default position should be the 2 MB region centered around the top SNP
+
+- All other tracks should be turned off
+
+- But `refSeqComposite` should be turned on with visibility set to `pack`
+
+- The track name should be `'Cheese top hit locus pvalues'`
+
+- The graph should show blue bars (not points)
+
+Hints:
+
+- Use the `cat` function to write the header lines directly to the file, using `append=TRUE`
+
+- Use `write.table` (with `append=TRUE` and other appropriate options) to write the data lines to the same file
+
+- Remember the coordinates should be in 0-start, half-open format (but the coordinates in the VCF are not in that format)
+
+- Are the chromosome IDs in the correct format?
+
+- Use a command like `system("head ~/cheese.bedGraph")` to check your work
+
+After you're happy with the file, copy it to your computer and upload it to the Genome Browser as a custom track. (Hint: use `system(paste0("grep assembly ", vcf_path))` to check what genome build to use.)
+
+Turn on some phenotype tracks, including the GWAS Catalog. It would be nice to know if any other phenotypes have GWAS hits at this locus. But there are two problems. First, many of the GWAS Catalog entries are from this very same study. Second, it's inconvenient to have to click on each SNP to see what phenotype it's associated with.
+
+# Task 2
+
+Let's try to make our own, more useful, customized GWAS Catalog track for this region.
+
+Using the Table Browser, query this exact same region in the GWAS Catalog, but use a filter to remove SNPs from the food-liking GWAS our data were drawn from. Use the PubMed ID as the filter. Select the columns you'll need to make a new track that shows rsID and trait. Output the data as a .csv file named `cheese`.
+
+# Task 3
+
+Copy `cheese` to the cluster and read it into R.
+
+Create the bed file `~/cheesegwas.bed` as follows
+
+- The `name` column should be formatted like this: `"rs12345:type_2_diabetes"` (first the SNP, then a colon, and then the trait, where spaces are placed with underscores)
+
+- The default window should be the same as for the bedGraph file you made above
+
+- All tracks should be turned off except refSeqComposite, which should be set to pack as above
+
+- Track name should be `'GWAS Catalog non-food hits'`, color should be red, and visibility should be set to full for the custom track
+
+Hints:
+
+- Use `cat` and `write.table` as above
+
+- The coordinates are already in 0-start, half-open format
+
+- Do `system("head ~/cheesegwas.bed")` to check your work
+
+When you're happy with the file, copy it to your computer, and upload it as a custom track. Keep your bedGraph track, but make sure the original GWAS Catalog track is turned off. Try adjusting the visibility of your bed track to pack. Can you interpret the results more easily now? Are there any associations at the top SNP? (Feel free to zoom far in.)
+
+# Task 4
+
+Last, let's try to make a bed file marking all our genome-wide significant loci.
+
+This code makes a 250 kb window around each genome-wide significant SNP and then merges all the overlapping windows using functions from the `GenomicRanges` package. It does most of the work of setting up the bed file for you.
+
+Add to the code to make `~/cheese_significant.bed`. Add whatever browser lines you want and format the track however you want, but make the default window be the second-highest genome-wide hit (which is on chromosome 20). Upload the track to the Genome Browser and see if you can find any interesting annotations at the locus.
+
+```{r}
+# Extract significant SNPs
+sig <- fix_df %>%
+  filter(P < 5e-8)
+
+# Make a genomic ranges object with windows around each significant SNP
+# These are very redundant, so merge overlapping regions
+gr <- GRanges(
+  seqnames = paste0("chr", sig$CHROM),
+  ranges = IRanges(
+    start = pmax(sig$POS - 250000, 0),
+    end   = sig$POS + 250000
+  )
+)
+gr_merged <- reduce(gr)
+
+# Convert to bed-like format
+bed <- data.frame(
+  chrom = as.character(seqnames(gr_merged)),
+  start = start(gr_merged)-1,
+  end = end(gr_merged)
+)
+head(bed)
+
+# Your code here
+```

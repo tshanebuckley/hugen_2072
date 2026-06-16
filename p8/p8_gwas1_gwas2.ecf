@@ -1,0 +1,160 @@
+# TO CHANGE: --pathOut file paths for both DEFINE functions (there are 2 of them) 
+#               make it point to a folder in your directory
+
+# Set the path for the EasyQC output
+# Specify the names of the input columns
+# Specify new names for them if desired (these will be used below in this file)
+
+DEFINE	--pathOut /ihome/adombrovski/tsb31/p8
+        --acolIn chr;pos;ref;alt;info;AF;n_complete_samples;beta;se;tstat;pval;strand
+        --acolNewName CHR;POS;OTHER_ALLELE;EFFECT_ALLELE;R2;EAF;N;BETA;SE;STAT;PVAL;STRAND
+        --acolInClasses character;integer;character;character;double;double;double;double;double;double;double;character
+        --strSeparator SPACE
+
+# Set the paths for the input files and give them short names if desired
+EASYIN	--fileIn /ix1/hugen2072-2026s/p8/p8_study2_gwas_results.txt
+        --fileInShortName study2
+
+DEFINE	--pathOut /ihome/adombrovski/tsb31/p8
+        --acolIn variant.id;chr;pos;effect_allele;other_allele;imp_r2;freq;genotyped;n.obs;MAC;Score;Score.SE;Score.Stat;Score.pval;Est;Est.SE;PVE;strand
+        --acolNewName VARID;CHR;POS;EFFECT_ALLELE;OTHER_ALLELE;R2;EAF;GENOTYPED;N;MAC;SCORE;SCORE.SE;STAT;PVAL;BETA;SE;PVE;STRAND
+        --acolInClasses character;numeric;numeric;character;character;double;double;logical;numeric;numeric;double;double;double;double;double;double;double;character
+        --strSeparator TAB
+
+
+
+# Set the paths for the input files and give them short names if desired
+EASYIN	--fileIn /ix1/hugen2072-2026s/p8/p8_study1_gwas_results.txt
+        --fileInShortName study1
+
+
+########## 
+
+START EASYQC
+
+# Cleaning steps - remove nonsensical data
+# Use R expressions returning logical values to specify SNPs that should be dropped
+# 	and give a name to the number of variants dropped for failing the filter
+CLEAN --rcdClean is.na(EFFECT_ALLELE)&is.na(OTHER_ALLELE) --strCleanName numDrop_Missing_Alleles
+CLEAN --rcdClean is.na(PVAL) --strCleanName numDrop_Missing_P
+CLEAN --rcdClean is.na(BETA) --strCleanName numDrop_Missing_BETA
+CLEAN --rcdClean is.na(SE) --strCleanName numDrop_Missing_SE
+CLEAN --rcdClean is.na(EAF) --strCleanName numDrop_Missing_EAF
+CLEAN --rcdClean is.na(N) --strCleanName numDrop_Missing_N
+CLEAN --rcdClean PVAL<0|PVAL>1 --strCleanName numDrop_invalid_PVAL
+CLEAN --rcdClean SE<=0|SE==Inf|SE>=10 --strCleanName numDrop_invalid_SE
+CLEAN --rcdClean abs(BETA)>=10 --strCleanName numDrop_invalid_BETA
+CLEAN --rcdClean EAF<0|EAF>1 --strCleanName numDrop_invalid_EAF
+
+# To save memory, use R expressions to round numbers that have too many unnecessary decimal digits
+EDITCOL --rcdEditCol signif(EAF,4) --colEdit EAF
+EDITCOL --rcdEditCol signif(BETA,4) --colEdit BETA
+EDITCOL --rcdEditCol signif(SE,4) --colEdit SE
+EDITCOL --rcdEditCol signif(PVAL,4) --colEdit PVAL
+
+# Exclude monomorphic SNPs:
+CLEAN --rcdClean (EAF==0)|(EAF==1) --strCleanName numDrop_Monomorph
+
+# Create column with minor allele count:
+ADDCOL --rcdAddCol signif(2*pmin(EAF,1-EAF)*N,4) --colOut MAC
+
+# Additional filtering - can be done later instead
+# Filter for low sample size, low minor allele count, low imputation quality
+#CLEAN --rcdClean N<30 --strCleanName numDrop_Nlt30
+#CLEAN --rcdClean MAC<=6 --strCleanName numDrop_MAClet6
+
+
+# This step basically standardizes indel alleles
+HARMONIZEALLELES 	--colInA1 OTHER_ALLELE 
+                  --colInA2 EFFECT_ALLELE
+
+# Create a unique identifier for each SNP based on chromosome, position, ref, and alt alleles
+# Use a mapping file as input; the input SNP ID will be matched to the mapping file, where there is chromosome/position information
+CREATECPTID --colInMarker VARID
+            --colInA1 EFFECT_ALLELE
+            --colInA2 OTHER_ALLELE
+            --colInChr CHR
+            --colInPos POS
+            --blnUseInMarker 0
+
+# If multiple markers map to the same position (i.e., if there are duplicates), keep the one with the biggest sample size
+CLEANDUPLICATES --colInMarker cptid 
+                --strMode samplesize 
+                --colN N
+
+# Merge with annotation (allele frequency is of particular interest)
+MERGE 	  --fileRef /ix1/hugen2072-2026s/p8/p8_snp_reference.txt
+          --acolIn cptid;a1;a2;a1_af 
+          --acolInClasses character;character;character;double
+          --colInMarker cptid
+          --colRefA1 a1
+          --colRefA2 a2
+          --strRefSuffix .ref
+          --colRefMarker cptid
+          --blnWriteNotInRef 1
+          --strSeparator SPACE
+
+
+# 
+ADJUSTALLELES   --colRefA1 a1.ref
+                --colRefA2 a2.ref
+                --colInA1 EFFECT_ALLELE
+                --colInA2 OTHER_ALLELE
+                --colInFreq EAF
+                --colInBeta BETA
+                --blnMetalUseStrand 0
+				        --blnRemoveMismatch 1
+				        --blnRemoveInvalid 1
+
+## All mismatches will be removed (e.g. A/T in input, A/C in reference)
+				
+AFCHECK   --colInFreq EAF
+          --colRefFreq a1_af.ref
+          --numLimOutlier 0.2
+          --blnPlotAll 1
+
+GETCOLS --acolOut cptid;CHR;POS;STRAND;EFFECT_ALLELE;OTHER_ALLELE;EAF;BETA;SE;PVAL;N;MAC
+
+WRITE   --strPrefix CLEANED.
+        --strMissing . 
+        --strMode gz
+
+####################
+## 8.  Plot Z versus P
+
+PZPLOT	--colBeta BETA 
+        --colSe SE 
+        --colPval PVAL
+
+####################
+## 9.  QQ plot
+
+QQPLOT	--acolQQPlot PVAL
+        --numPvalOffset 0.05
+		    --strMode subplot
+
+####################
+## 10. Summary Stats post-QC
+
+CALCULATE --rcdCalc max(N,na.rm=T) --strCalcName N_max
+GC	--colPval PVAL --blnSuppressCorrection 1
+
+RPLOT	--rcdRPlotX N_max
+		  --rcdRPlotY Lambda.PVAL.GC
+		  --arcdAdd2Plot abline(h=1,col='orange');abline(h=1.1,col='red')
+		  --strAxes lim(0,NULL,0,NULL)
+		  --strPlotName GC-PLOT
+
+####################
+## 11. SE-N Plot - Trait transformation
+
+CALCULATE --rcdCalc median(SE,na.rm=T) --strCalcName SE_median
+CALCULATE --rcdCalc median(1/sqrt(2*EAF*(1-EAF)), na.rm=T) --strCalcName c_trait_transf
+
+RPLOT 	--rcdRPlotX sqrt(N_max)
+		    --rcdRPlotY c_trait_transf/SE_median
+		    --arcdAdd2Plot abline(0,1,col='orange')
+		    --strAxes zeroequal
+		    --strPlotName SEN-PLOT
+
+STOP EASYQC

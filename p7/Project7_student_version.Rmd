@@ -1,0 +1,738 @@
+---
+title: "HUGEN 2072 Project 7"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+# Instructions
+
+Below is a guided tutorial to perform a genome-wide association study (GWAS) of height. Some code has been provided to you and some you will need to write yourself.
+
+Project 7 has three components:
+
+* **Scripting/coding**: read through this file and complete the pipeline by contributing your code *where indicated*.
+
+* **Narrative**: knit the completed .Rmd to a code-integrated HTML report of your QC process and decisions.
+
+  * Your report must answer all the questions and perform all the tasks indicated in the instructions/prompts given for each step.
+
+  * You must submit a successfully-knitted HTML file and the `.Rmd` in order to earn a passing grade for this project.
+
+  * Set up your report to flow like an actual document you might show your supervisor to summarize the QC project, emphasizing what was done at each step rather than the code used to do it (e.g., how many samples/SNPs were filtered out at a given step?)
+
+  * **Submit your .Rmd and HTML to Canvas**
+
+* **Presentation**: you will make a 10-min (maximum) recording of yourself with Panopto in which you summarize this GWAS. Instructions will given on Canvas.
+
+In each part of this project you will implement one of the main steps of GWAS (some steps completed for you). 
+
+
+**Since the pipeline below is incomplete, some of the R code chunks are set to `eval=FALSE` so that knitting to HTML will succeed. You will need to change them to `eval=TRUE` as you progress so that your knitted document shows the results of running each chunk.**
+
+**However, some chunks are very computationally intensive, produce a file that can be used without re-running the chunk. To make knitting to HTML faster, I have indicated which chunks you can set to `eval=FALSE` after you have produced the required files.**
+
+**It is expected that you will copy this file somewhere to your directory on the CRC cluster so that you can use the RStudio Server, where all the packages you need have been installed already.**
+
+## Part 0 - Setup Workspace and Load Sample Data
+
+First, load the packages we'll be using.
+
+```{r load_packages, message=F, eval=TRUE}
+
+# Load the required packages for the project (Install them if necessary)
+
+library("tidyverse", quietly = TRUE)
+library("SeqArray", quietly = TRUE)
+library("SeqVarTools", quietly = TRUE)
+library("Biobase", quietly = TRUE)
+library("GENESIS", quietly = TRUE)
+library("GGally", quietly = TRUE)
+library("qqman", quietly = TRUE)
+
+# Close any open GDS files before proceeding (think of this as starting off with a 'blank slate')
+
+showfile.gds(closeall = T, verbose = T)
+```
+
+
+All of the files you will need are located on the cluster in `/ix1/hugen2072_2026s/p7/`.
+
+```
+p7_sample_info.RData
+p7_variant_info.RData
+p7_pca.RData
+p7_grm.RData
+p7_imputed_data.gds
+```
+
+To start, load in the sample information file and examine it. 
+
+```{r part0_sample}
+# path to folder for project
+my_folder <- "/ix1/hugen2072-2026s/p7/"
+
+
+# load the sample info file
+load(paste0(my_folder, "p7_sample_info.RData"), verbose = TRUE)
+
+
+```
+
+
+## Part 0 - Report
+
+Describe the sample to use in this study. How many individuals are there? What measurements (variables) are there? 
+
+Describe the distribution of the phenotype height. Does it vary by sex or population (pop)?
+
+Based on your findings, do you think you should include sex or pop as covariates in a GWAS for height?  
+
+
+```{r part0_report}
+
+# Your code goes here
+sample.data = sample.info %>% 
+  pData()
+
+# number of samples
+nrow(sample.data %>% distinct(sample.id))
+glimpse(sample.data)
+
+# get some preliminary summary statistics across our two grouped fields
+get_height_summary_by_group <- function(data, group) {
+  # summary stats
+  summ = data %>% 
+  group_by(
+    !!sym(group)
+  ) %>% 
+  summarise(
+    count = n(),
+    median = median(height),
+    sd = sd(height),
+    q25 = quantile(height, 0.25),
+    mean = mean(height),
+    q75 = quantile(height, 0.75),
+    min = min(height),
+    max = max(height)
+  )
+  print(summ)
+  # graphing setup
+  base_plot = data %>% 
+    ggplot() +
+    aes(
+      x = !!sym(group),
+      y = height
+    )
+  # boxplots
+  bp = data %>% 
+    ggplot() +
+    aes(
+      x = !!sym(group),
+      y = height
+    ) +
+    geom_boxplot() +
+    theme_minimal()
+  print(bp)
+  # density plots across groups
+  # one plotted overtop
+  dens_layers = data %>% 
+    ggplot() +
+    aes(
+      x = height,
+      fill = !!sym(group)
+    ) + 
+    geom_density(alpha = 0.5) +
+    theme_minimal()
+  print(dens_layers)
+  # one faceted
+  dens_facet = data %>% 
+    ggplot() +
+    aes(
+      x = height,
+    ) + 
+    geom_vline(
+      aes(
+        xintercept = mean(height)),
+        linetype = "dashed"
+    ) +
+    facet_wrap(group) +
+    geom_density(alpha = 0.5) +
+    theme_minimal()
+  print(dens_facet)
+}
+
+# summary stats by sex
+get_height_summary_by_group(sample.data, "sex")
+
+# summary stats by pop
+get_height_summary_by_group(sample.data, "pop")
+
+# distribution for the height variable across all participants
+# overall summary
+sample.data %>% 
+  summarise(
+    count = n(),
+    median = median(height),
+    sd = sd(height),
+    q25 = quantile(height, 0.25),
+    mean = mean(height),
+    q75 = quantile(height, 0.75),
+    min = min(height),
+    max = max(height)
+  )
+# overall distribution
+sample.data %>% 
+  ggplot() +
+  aes(
+    x = height,
+  ) + 
+  geom_vline(
+    aes(
+      xintercept = mean(height)),
+      linetype = "dashed"
+  ) +
+  geom_density(alpha = 0.5) +
+  theme_minimal()
+# quick overview using the GGally package that we learned in 2073
+# https://ggobi.github.io/ggally/articles/ggpairs.html
+library(GGally)
+data.factored = sample.data %>% 
+    select(-sample.id) %>% 
+    mutate(
+      sex = as_factor(sex),
+      pop = as_factor(pop)
+    )
+ggpairs(
+  data.factored,
+  mapping = aes(color = sex)
+)
+
+```
+
+The sample from this study includes the height, sex, and population/heritage of 2,548 participants. Sex is a binary "male"/"female" coding and population is across 6 options with an inclusion of a single participant that is of both European and African descent. The height outcome does appear to be normally distributed, but does appear to vary with both sex and population. Male participants appear to be taller (174) compared to female participants  (162). Height also appears to differ across heritage. I would use both sex and pop as covariates on our height GWAS.
+
+## Part 1 - Imputed genotypes
+
+Imputed genotypes were obtained using the TOPMed Imputation Server (and then downsampled for computational ease). Information about the resulting variants is in `p7_variant_info.RData`. The imputed genotypes themselves have been converted to a Seq GDS file, `p7_imputed_data.gds`.
+
+Load in the SNP information file and explore it. The columns are:
+
+- snp.id: the variant id used in the GDS 
+- chr: chromosome  
+- pos: position  
+- alleles: allele codes (ref, alt)  
+- af: alt allele frequency  
+- r2: imputation r-squared  
+- genotyped: TRUE if genotyped, FALSE if imputed
+
+```{r part1_geno}
+
+# load in SNP information file
+load(paste0(my_folder, "p7_variant_info.RData"), verbose = TRUE)
+
+# Your code goes here
+glimpse(snp.info)
+
+snp_by_chr = snp.info %>% 
+  select(
+    chr
+  ) %>% 
+  mutate(
+    chr = as.integer(chr)
+  ) %>% 
+  group_by(
+    chr
+  ) %>% 
+  summarise(
+    count = n()
+  )
+
+snp_by_chr
+mean_chr_count = mean(snp_by_chr$count)
+mean_chr_count
+
+snp_by_chr %>% 
+    ggplot() +
+    aes(
+      x = chr,
+      y = count
+    ) + 
+    geom_hline(
+      aes(
+        yintercept = mean_chr_count
+      ),
+      linetype = "dashed"
+    ) +
+    geom_col()
+    theme_minimal()
+
+```
+
+
+Decide on reasonable filters for these SNPs to be included in a GWAS for this sample. Base this decision on your exploration of the `snp.info` and content from class. You will be guided to think about specific aspects for these filters in the reporting section below. 
+
+Create a list of SNPs to use for downstream analyses, implementing your chosen filters. **You will need to put your criteria for SNPs to include inside the `filter` function.** Running the template code as is will not perform any filtering.
+
+```{r part1_snp_filter}
+
+# make list of snp.ids for SNPs passing filters using snp.info 
+snps.keep <- snp.info %>%
+  filter(
+    af > 0.01,
+    r2 > 0.8
+  ) %>%
+  pull(snp.id)
+
+```
+
+
+## Part 1 - Report
+
+How many variants are present in the imputed genotypes GDS file? 
+
+How many variants are imputed and how many are genotyped?
+
+Make a plot showing the distribution of imputation quality (r2). What do you think is a reasonable threshold to set for keeping SNPs based on this?
+
+Make a plot showing the distribution of allele frequencies. What do you think is a reasonable threshold to set for keeping SNPs based on this?
+
+How many variants are you going to include in your analyses (those that have high imputation quality and are common enough to include in a GWAS)?
+
+
+```{r part1_report}
+
+# Your code goes here
+
+# check if there is any missingness
+anyNA(snp.info)
+
+# number of variants
+nrow(snp.info)
+
+# number of imputed and genotyped variants
+snp.info %>% 
+  group_by(
+    genotyped
+  ) %>% 
+  summarize(
+    count = n()
+  )
+
+show_dist <- function(data, var, estimate_line) {
+  data %>% 
+    ggplot() +
+    aes(
+      x = !!sym(var),
+    ) + 
+    geom_vline(
+      aes(
+        xintercept = mean(!!sym(var))
+      ),
+      linetype = "dashed"
+    ) +
+    geom_vline(
+      aes(
+        xintercept = estimate_line,
+        color = "red"
+      ),
+      linetype = "dashed"
+    ) +
+    geom_density(alpha = 0.5) +
+    theme_minimal()
+}
+
+# distribution of R2
+snp.info %>% 
+  show_dist("r2", 0.8)
+
+# distribution of allele frequencies
+snp.info %>% 
+  show_dist("af", 0.01)
+
+# number of variants after filtering
+length(snps.keep)
+
+```
+
+Note that missingness was already checked before imputation. From here, had to determine which variants to keep based on quality and allele frequency. Oddly enough, this data ONLY contains imputed variants (n = 647,629). Looking at density plots for both the R2 imputation and alternate allele frequency, we landed on a minimal R2 of 0.8 and MAF of 0.01. These are standard to begin with and appear acceptable for our case here (red-dotted lines on associated plots). We ended with 103,740 variants to include in the GWAS.
+
+## Part 2 - Principle Components of Ancestry
+
+You have been provided with pre-calculated principal components of ancestry in `p7_pca.RData`. This file contains two data objects: `mypcair` the output from pcair and `pca` a data frame with 32 PCAs and sample.id. 
+
+Merge this with the sample.info information and create plots of the PCAs (scree plot, parallel coordinates plot, and pairwise scatterplots). **You will need to decide how many PCAs to retain for analysis.**   
+
+
+```{r part2_pca}
+
+# load PCA object
+load(paste0(my_folder, "p7_pca.RData"), verbose = TRUE)
+
+# Your code goes here
+
+# merge the data
+merged_sample_pca = sample.data %>% 
+  left_join(
+    pca,
+    by = "sample.id"
+  )
+
+# data for the scree plot
+n_pca = (ncol(pca) - 1)
+scree_data = data.frame(
+  pc = 1:n_pca,
+  varprop = mypcair$varprop[1:n_pca]
+)
+
+# scree plot
+scree_data %>% 
+  ggplot() +
+  aes(
+    x = factor(pc),
+    y = 100 * varprop 
+  ) +
+  geom_point() +
+  theme_bw() +
+  xlab("PC") +
+  ylab("Percent of variance accounted for") +
+  theme_minimal()
+
+# parallel coordinated plot (note, loaded GGally above)
+library(RColorBrewer)
+
+pop_names = merged_sample_pca$pop %>% unique()
+n_pops = length(pop_names)
+
+pop.cols = setNames(
+  brewer.pal(
+    n = n_pops,
+    "RdBu"
+  ),
+  pop_names
+)
+
+merged_sample_pca %>% 
+  ggparcoord(
+    columns = 5:18,
+    groupColumn = "pop",
+    scale = "uniminmax"
+  ) +
+  scale_color_manual(
+    values = pop.cols
+  ) +
+  xlab("PC") + ylab("") +
+  theme_minimal()
+
+# pairwise scatterplot (first two components)
+merged_sample_pca %>% 
+  ggplot() +
+  aes(
+    PC1,
+    PC2,
+    color = pop
+  ) +
+  geom_point(
+  ) +
+  scale_color_manual(
+    values = pop.cols
+  ) +
+  scale_shape_binned() +
+  theme_minimal()
+
+```
+
+
+## Part 2 - Report
+
+How many principal components of ancestry will you include as covariates in the GWAS? Why did you choose this number?
+
+
+```{r part2_report}
+
+# Your code goes here
+
+# NOTE: the "EUR,AFR" ancestry participant landed directly within the EUR population in PCA...
+# Would probably just recode them to EUR with the following...
+
+corrected_ancestry = merged_sample_pca %>% 
+  mutate(
+    pop = if_else(
+      pop == "EUR,AFR",
+      "EUR",
+      pop
+    )
+  )
+
+get_height_summary_by_group(corrected_ancestry, "pop")
+
+```
+
+We chose PCA 11 as once we reached here, all of the variance appeared to be accounted for across the scree and parallel coordinate plots.
+
+## Part 3 - Null Model
+
+PC-Relate was already run and the results are stored in `p7_grm.RData`. This file contains a genetic relatedness matrix (called `GRM`) and the results from pc-relate `mypcrelate`. 
+
+Create a kinship plot to examine relatedness among the sample. 
+
+
+```{r part3_relatedness}
+
+# Load in pc-relate results
+load(paste0(my_folder, "p7_grm.RData"), verbose = TRUE)
+
+# Your code goes here
+kinship <- mypcrelate$kinBtwn
+
+kinship %>% 
+  ggplot() +
+  aes(
+    x = k0,
+    y = kin
+  ) +
+  geom_hline(
+    yintercept = 2^(-seq(3,9,2)/2),
+    linetype="dashed",
+    color="grey"
+  ) +
+  geom_point(alpha = 0.5) +
+  ylab("kinship estimate") +
+  theme_minimal()
+
+```
+Decide on a null model to use for a GWAS of height for this sample. You will be guided to think about specific aspects for these filters in the reporting section below. 
+
+Run the null model in the chunk below. You will need to supply the code for running the null model. 
+
+
+```{r part3_null_model}
+
+# Your code goes here
+
+# set up the annotated data frame
+metadata = data.frame(
+  labelDescription = c(
+    varMetadata(sample.info)$labelDescription,
+    paste0(
+      "PC",
+      1:n_pca
+    )
+  )
+)
+
+annot = AnnotatedDataFrame(
+  merged_sample_pca,
+  metadata
+)
+
+# generate the nul model
+nullmod_linear <- fitNullModel(
+  annot,
+  outcome = "height",
+  covars = c(
+    "sex",
+    "pop",
+    paste0(
+      "PC",
+      1:11
+    )
+  ),
+  cov.mat = GRM,
+  family = "gaussian",
+  sample.id = NULL,
+  two.stage = TRUE)
+
+```
+
+## Part 3 - Report
+
+Do you think you should account for relatedness with a genetic relatedness matrix?  
+
+What type of model should be used for a GWAS of height (linear or logistic)? 
+
+Does the height phenotype appear to follow a normal distribution closely enough, or do you think we should use an inverse normal transformed phenotype here? Explain. 
+
+What covariates are included in the null model? (Hint: think back to your findings in part 0 and part 2.)
+
+
+```{r part3_report}
+
+# Your code goes here
+
+```
+
+Due to the higher level of relatedness of some of the samples (a few around 0.25: avuncular/grandparent/half-sibling and 0.125: first cousins), we decided to correct for relatedness. As height is a categorical variable, we will be running a linear regression accounting for our previously identified covariates of sex, pop, and first 11 PCAs. As the height appears normally distributed, we did not INT transform the phenotype.
+
+## Part 4 - Association Test
+
+Now, you will finally run the genotype association tests for the GWAS. The imputed genotypes are available as a Seq GDS file, `p7_imputed_data.gds`. First, create a SeqVarData object by merging the gds file with the annotated data frame that includes the PCAs from Part 2. Then, use `seqSetFilter()` to keep only the good SNPs you created in Part 1 (`snps.keep`).
+Using this and the null model you created in Part 3, run the single variant association tests genome-wide using an additive genetic model using the imputed dosages. 
+
+```{r part4_assoc}
+
+# read in GDS file
+gdsfile <- paste0(my_folder, "p7_imputed_data.gds")
+gds <- seqOpen(gdsfile)
+gds
+
+# Your code goes here
+
+seqData <- SeqVarData(
+  gds,
+  sampleData = annot
+)
+
+seqSetFilter(
+  seqData,
+  variant.id = snps.keep
+)
+
+seqIterator <- SeqVarBlockIterator(
+  seqData,
+  variantBlock = 5000,
+  verbose = TRUE
+)
+
+assoc_linear <- assocTestSingle(
+  seqIterator,
+  null.model = nullmod_linear,
+  geno.coding = "additive",
+  male.diploid = TRUE,
+  imputed = TRUE
+)
+
+seqClose(gds)
+
+```
+
+
+## Part 4 - Report
+
+Make Q-Q plot for these GWAS results (not the phenotype) and calculate the genomic inflation factor, $\lambda_GC$. Does there appear to be any inflation in these results?
+
+Make a Manhattan plot for these results. How many genome-wide significant regions (p < 5e-8) do you observe?
+
+Which variant is the most significantly associated with height? What is the effect size estimate from the model for this variant? 
+
+```{r part4_report}
+
+# Your code goes here
+
+library(qqman)
+
+assoc_linear <- assoc_linear %>%
+  mutate(
+    chr = as.numeric(chr),
+    snp = paste(
+      chr, pos, sep=":"
+    )
+  )
+
+assoc_pruned = assoc_linear %>% 
+  filter(
+    -log10(Score.pval) > 2
+  )
+
+# manhattan plot
+qqman::manhattan(
+  # assoc_pruned,
+  assoc_linear,
+  chr = "chr",
+  bp = "pos",
+  snp = "snp",
+  p = "Score.pval"
+)
+
+# qqplot
+qq(assoc_linear$Score.pval)
+
+# calculate lambda
+lambda <- unname(
+  quantile(
+    assoc_linear$Score.Stat^2, probs = 0.5, na.rm=TRUE
+  ) /
+  qchisq(0.5, df = 1)
+)
+lambda
+
+# create a table of the top variant
+top = assoc_linear %>% 
+  arrange(Score.pval)
+top = top[1:10,]
+
+# data dictionary of the output
+# https://www.bioconductor.org/packages//release/bioc/vignettes/GENESIS/inst/doc/assoc_test.html
+
+# use topr to annotate our top 10 SNPs to closest gene
+# install.packages("topr")
+library(topr)
+
+genes = annotate_with_nearest_gene(
+  top %>% 
+    mutate(
+      CHROM = chr,
+      POS = pos
+    ) %>% 
+    select(CHROM, POS)
+) %>% 
+  mutate(
+    snp = paste(
+      CHROM, POS, sep=":"
+    )
+  ) %>% 
+  select(
+    snp, Gene_Symbol
+  )
+
+top %>% 
+  mutate(
+    Beta = Est,
+    PVal = Score.pval,
+    Freq = freq,
+  ) %>% 
+  select(
+    snp, PVal, Beta, Freq, variant.id
+  ) %>% 
+  left_join(
+    snp.info %>% 
+      mutate(
+        variant.id = snp.id
+      ) %>% 
+      separate(
+        alleles,
+        into = c(
+          "REF", "ALT"
+        ),
+        sep = ","
+      ) %>% 
+      select(
+        REF, ALT, variant.id
+      ),
+    by = "variant.id"
+  ) %>% 
+  left_join(
+    genes,
+    by = "snp"
+  ) %>% 
+  mutate(
+    SNP = snp,
+    Gene = Gene_Symbol,
+    NegLogPVal = -log10(PVal)
+  ) %>% 
+  select(
+    SNP, REF, ALT, PVal, NegLogPVal, Beta, Freq, Gene
+  )
+
+```
+
+
+Our genomic inflation factor was at ~1.014, so we can say that we do not have genomic inflaction here (is around 1). We only appear to have two genome-wide significant regions, each only containing a single variant. These are 19:28492903:C>T (p-value = 6.3e-06) and 13:47712209:A>T (p-value = 9.8e-06). Of these two, the variant on chromosome 19 was the most significant with an estimated Beta of 0.8675459.

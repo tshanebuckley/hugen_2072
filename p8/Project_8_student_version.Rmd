@@ -1,0 +1,1257 @@
+---
+title: "HUGEN 2072 Project 8"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+# Instructions
+
+Below is a guided tutorial to perform some advanced analyses building upon the results from project 7's GWAS of height.
+Some code has been provided to you and some you will need to write yourself.
+
+Project 8 has three components:
+
+-   **Scripting/coding**: read through this file and complete the pipeline by contributing your code *where indicated*.
+
+-   **Narrative**: knit the completed .Rmd to a code-integrated HTML report of your QC process and decisions.
+
+    -   Your report must answer all the questions and perform all the tasks indicated in the instructions/prompts given for each step.
+
+    -   You must submit a successfully-knitted HTML file and the `.Rmd` in order to earn a passing grade for this project.
+
+    -   Set up your report to flow like an actual document you might show your supervisor to summarize the project, emphasizing what was done at each step rather than the code used to do it
+
+    -   **Submit your .Rmd and HTML to Canvas**
+
+-   **Presentation**: you will make a 10-min (maximum) recording of yourself with Panopto in which you summarize this GWAS.
+    Instructions will given on Canvas.
+
+In each part of this project you will implement one analysis strategy we learned in class (some steps completed for you).
+
+**Since the code below is incomplete, some of the R code chunks are set to `eval=FALSE` so that knitting to HTML will succeed. You will need to change them to `eval=TRUE` as you progress so that your knitted document shows the results of running each chunk.**
+
+**It is expected that you will copy this file somewhere to your directory on the CRC cluster so that you can use the RStudio Server, where all the packages you need have been installed already.**
+
+**To standardize the starting point of this project, I have provided the necessary results from project 7, so please use those instead of any of your generated files.**
+
+## Part 0 - Setup Workspace and Load Sample Data
+
+First, load the packages we'll be using.
+
+```{r load_packages, message=F, eval=TRUE}
+
+# Load the required packages for the project (Install them if necessary)
+
+library("SeqArray", quietly = TRUE)
+library("SeqVarTools", quietly = TRUE)
+library("GENESIS", quietly = TRUE)
+library("locuszoomr", quietly = TRUE)
+library("EnsDb.Hsapiens.v86", quietly = TRUE)
+library("rsq", quietly = TRUE)
+library("EasyQC", quietly = TRUE)
+library("qqman", quietly = TRUE)
+library("tidyverse", quietly = TRUE)
+library("ggforce", quietly = TRUE)
+
+
+# Close any open GDS files before proceeding (think of this as starting off with a 'blank slate')
+
+showfile.gds(closeall = T, verbose = T)
+```
+
+All of the files you will need are located on the cluster in `/ix1/hugen2072_2025s/p8/`.
+
+
+```{r part0_setup}
+
+# path to folder for project
+shared_folder <- "/ix1/hugen2072-2026s/p8/"
+
+```
+
+## Part 1 - Evaluate GWAS hits
+
+A version of the GWAS from project 7 has been provided for you in the file `p8_study1_gwas_results.txt`.
+
+The columns here are:
+
+-   variant.id: the variant ID from the GDS file
+
+-   chr: chromosome
+
+-   pos: position (hg38)
+
+-   effect_allele: allele coded additively for GWAS
+
+-   other_allele: the other allele at the variant (non-effect allele)
+
+-   imp_r2: imputation quality r-squared
+
+-   freq: the frequency of the effect allele
+
+-   genotyped: `TRUE` if variant was genotyped, `FALSE` if it was imputed
+
+-   n.obs: sample size with non-missing data at that variant
+
+-   MAC: minor allele count
+
+-   Score, Score.SE, Score.Stat, Score.pval, Est, Est.SE, and PVE: columns from `assocTestSingle()` run.
+
+-   strand: strand indicator
+
+
+```{r part1_gwas}
+
+# read in results from GWAS 1
+gwas1 <- read_table(paste0(shared_folder, "p8_study1_gwas_results.txt"))
+gwas1
+
+```
+
+## Part 1 - Report
+
+### Top SNP
+
+In the results file provided to you, which SNP has the most significant association with height?
+Report the GDS variant.id, chromosome, position, alleles, GWAS p-value, GWAS effect size, effect allele, effect allele frequency, and whether the SNP was genotyped or imputed.
+
+```{r part1_report_topsnp}
+
+# Your code goes here
+most_sig1 = gwas1 %>%
+  arrange(Score.pval)
+  
+most_sig1 = most_sig1[1,]
+most_sig1
+
+```
+
+The most significant association was the imputed SNP 19:28492903:C>T (id of 542766). The GWAS effect size was ~0.88 (p-value: ~4.1e-06).
+
+### Sina plot
+
+The code below gives you an example of how to merge in genotypes for a variant from the results with the sample annotation file. 
+
+Edit the code below for the top SNP you just identified. 
+
+
+
+```{r part1_report_geno}
+
+# load sample annotation file
+load(paste0(shared_folder, "p8_study1_sample_info.RData"), verbose = TRUE)
+head(pData(sample.info))
+
+# open SeqArray GDS file of genetic data from study 1
+gds <- seqOpen(paste0(shared_folder, "p8_study1_imputed_data.gds"))
+gds
+
+# Extract genotype for one variant
+#  this code just does the first variant in the results file
+# Change my_chr and my_variant to match your variant of interest
+
+my_chr <- "19" # change this to the chromosome you want (keep as character)
+my_variant <- 542766 # change this to the variant.id you want (keep as numeric)
+
+# Filter gds file to chromosome of interest
+seqSetFilterChrom(gds, include=my_chr)
+
+# Additionally filter to variant.id of interest
+seqSetFilter(gds, variant.id=my_variant, verbose=TRUE, action = "intersect")
+
+# Get dosage of variant
+geno <- altDosage(gds)
+
+# Close gds file
+seqClose(gds)
+
+# Create a data object with genotypes
+geno_df <- as_tibble(geno, rownames = "sample.id")
+names(geno_df)[2] <- c("genotype")
+
+# Merge with annotation file
+annot_geno <- inner_join(pData(sample.info), geno_df, by=c("sample.id"))
+
+# Examine genotype distribution
+annot_geno %>% count(genotype)
+
+
+```
+
+Create a sina plot that shows the raw values of height across genotype groups at this top variant.
+
+Comment on whether you think the genotype model you specified is appropriate for this variant or not.
+
+
+```{r part1_report_sina}
+
+# Your code goes here
+
+# let's make the genotype a factor to clean-up the plot
+get_allele <- function(id, df, ref = TRUE) {
+  allele = df %>% 
+    filter(
+      variant.id == id
+    )
+  if (ref) {
+    allele = allele$other_allele
+  } else {
+    allele = allele$effect_allele
+  }
+  return (
+    allele
+  )
+}
+
+ref_allele = get_allele(542766, gwas1)
+alt_allele = get_allele(542766, gwas1, FALSE)
+
+annot_geno = annot_geno %>% 
+  mutate(
+    genotype_fct = factor(
+      genotype,
+      levels = c(
+        0, 1, 2
+      ),
+      labels = c(
+        paste0(ref_allele, ref_allele),
+        paste0(ref_allele, alt_allele),
+        paste0(alt_allele, alt_allele)
+      )
+    )
+  )
+
+height_by_geno = annot_geno %>% 
+  group_by(genotype_fct) %>%
+  summarize(sd = sd(height, na.rm=T),
+  mean = mean(height, na.rm=T))
+
+annot_geno %>% 
+  ggplot() + 
+  aes(
+    x = genotype_fct,
+    y = height
+  ) +
+  geom_sina(
+    alpha = 0.2
+  ) +
+  geom_pointrange(
+    aes(
+      x = genotype_fct,
+      y = mean,
+      ymin = mean - sd,
+      ymax = mean + sd,
+      colour = "red"
+    ),
+    data = height_by_geno,
+    inherit.aes = FALSE,
+    show.legend = FALSE
+  ) +
+  xlab("genotype") +
+  theme_minimal()
+
+```
+
+Given that the CC and CT genotypes are about the same and the TT genotype has a higher associated height, it would probably be best to use a recessive model.
+
+### LocusZoom plot
+
+Edit the code below to create a LocusZoom plot centered around the SNP you just identified. Based on this plot you created, how confident do you feel that this signal is *not* a false positive?
+Explain.
+
+```{r part1_report_lz}
+
+########################################
+### Code you need to edit
+my_chr <- "19" # change this to the chromosome you want (keep as character)
+my_variant <- 542766 # change this to the variant.id you want (keep as numeric)
+my_lz_window <- c(28492903 - 250000, 28492903 + 250000) # change to be the positions for the window you want to plot (typically +/- 250 kb around your top SNP)
+#######################################
+
+# a function to calculate LD from a gds file for a given index variant
+calculateLD <- function(gdsfile, chr, variant.id, ref.var=NULL, sample.id=NULL) {
+    gds <- seqOpen(gdsfile)
+    seqSetFilterChrom(gds, include=chr)
+    seqSetFilter(gds, variant.id=variant.id, sample.id=sample.id, verbose=TRUE, action = "intersect")
+    geno <- altDosage(gds)
+    seqClose(gds)
+
+    # correlations for just ref.var, or the entire matrix?
+    if (is.null(ref.var)){
+        geno.ref <- geno
+    } else {
+        geno.ref <- geno[,as.character(ref.var)]
+    }
+
+    # drop unnecessary dimensions (if ref.var is a single variant)
+    r <- drop(cor(geno, geno.ref, use="pairwise.complete.obs"))
+    
+    ld <- as_tibble(r^2, rownames="variant.id") %>% 
+      dplyr::rename(LD = value) %>% 
+      mutate(variant.id = as.numeric(variant.id)) %>% 
+      dplyr::select(variant.id, LD)
+    
+    return(ld)
+
+}
+
+# Subset results file to region of interest
+gwas1_locus <- 
+  gwas1 %>% 
+  filter(chr == as.numeric(my_chr) & pos >= my_lz_window[1] & pos <= my_lz_window[2])
+
+# calculate LD with variant
+ld <- calculateLD(gdsfile = paste0(shared_folder, "p8_study1_imputed_data.gds"),
+                  chr = my_chr,
+                  variant.id = gwas1_locus$variant.id,
+                  ref.var=my_variant) 
+
+# merge LD back with gwas results
+gwas1_locus <- inner_join(gwas1_locus, ld %>% dplyr::select(variant.id, LD), by = "variant.id")
+
+# create a unique SNP identifier column
+gwas1_locus <- 
+  gwas1_locus %>% 
+  mutate(snp_id = paste(chr, pos, other_allele, effect_allele, sep=":"))
+
+# locuszoom plot
+loc <- locus(data = gwas1_locus, 
+             p = "Score.pval",
+             xrange = my_lz_window, 
+             seqname = my_chr,
+             labs = "snp_id",
+             LD = "LD",
+             ens_db = "EnsDb.Hsapiens.v86")
+summary(loc)
+locus_plot(loc)
+
+```
+
+I feel rather confident that this signal is not a false positive given the emptiness directly above and below it that may be accounted for by other variants in the location that may be missing from this data set which this SNP may interact with. Also, this SNP in particular lines up across multiple genes. While the variant itself does not reach genome-wide significance, it may still help account for height partially as part of a threshold model rather than something Mendelian.
+
+
+## Part 2 - PGS
+
+Another study of height generated a polygenic score to predict height (https://www.pgscatalog.org/score/PGS002975/). 
+
+
+You have been provided with pre-harmonized data for the PGS scoring file `p8_pgs002975_scores.txt` and PLINK formatted data for study 1 `p8_study1.bed|bim|fam`. 
+
+**Edit the template code below to point the output to your directory with the `OUT_FOLDER` variable.**
+
+Then run the code below. At the command line, load PLINK with `module load plink/1.90b7.7`, then run the PLINK command.
+
+```{bash, eval=FALSE}
+module load plink/1.90b7.7
+
+# edit this to point to your directory 
+OUT_FOLDER=$HOME/p8
+
+CLASS_FOLDER=/ix1/hugen2072-2026s/p8/
+
+plink --bfile $CLASS_FOLDER/p8_study1 \
+--score  $CLASS_FOLDER/p8_pgs002975_scores.txt header sum \
+--out $OUT_FOLDER/p8_study1_scored 
+
+```
+
+Read the `.profile` file created by PLINK, which contains the values of the PGS and merge with the phenotypes from the annotation object.
+
+```{r part2_pgs}
+
+# Your code goes here
+
+load_and_merge_score = function(file, annot_data) {
+  pgs = read.table(
+    file,
+    header = TRUE
+  )
+  print(nrow(annot_data))
+  print(nrow(pgs))
+  merged = annot_data %>% 
+    inner_join( # use an inner join to ensure we have a 1:1 joining
+      pgs %>% rename(sample.id = IID),
+      by = "sample.id"
+    )
+  print(nrow(merged))
+  return(
+    list(
+      pgs = pgs,
+      merged = merged
+    )
+  )
+}
+
+pgs_merge_results = load_and_merge_score("p8_study1_scored.profile", annot_geno)
+pgs_merged = pgs_merge_results$merged
+pgs = pgs_merge_results$pgs
+
+```
+
+## Part 2 - Report
+
+How many SNPs were in the starting PGS scoring files were used here?
+How many variants matched the PLINK files for the imputed data?
+
+Based on these results from above applying the PGS for height, evaluate the utility of this PGS in predicting height.
+Make sure you report the PGS p-value, phenotypic variance explained (both incremental and partial r2), and an effect size estimate.
+
+```{r part2_report}
+
+# Your code goes here
+
+nrow(pgs_merged)
+orig_pgs = read.table(
+  "/ix1/hugen2072-2026s/p8/p8_pgs002975_scores.txt"
+)
+nrow(
+  orig_pgs
+)
+
+get_pgs_summ_stats_by_pop = function(population, data) {
+  
+  pop_data = data %>% filter(pop == population)
+  
+  m_full <- lm(
+    height ~ SCORESUM + factor(sex),
+    data = pop_data
+  )
+  m_reduced <- lm(
+    height ~ factor(sex),
+    data = pop_data
+  )
+  
+  summ_full = summary(m_full)
+  summ_full
+  
+  summ_reduced = summary(m_reduced)
+  summ_reduced
+  
+  incremental_r2 = summ_full$r.squared - summ_reduced$r.squared
+  incremental_r2
+  
+  partial_r2 = rsq.partial(objF = m_full, objR = m_reduced)$partial.rsq
+  partial_r2
+  
+  row = list(
+      "Population" = population,
+      "Effect Size" = summ_full$coefficients["SCORESUM", "Estimate"],
+      "PGS P-value" = summ_full$coefficients["SCORESUM", "Pr(>|t|)"],
+      "Full Model R2" = summ_full$r.squared,
+      "Partial Model R2" = summ_reduced$r.squared,
+      "Incremental R2" = incremental_r2,
+      "Partial R2" = partial_r2
+  )
+  return(
+    row
+  )
+}
+
+# from the last project, move the EUR,AFR to EUR
+pgs_merged_pop_corrected = pgs_merged %>% 
+  mutate(
+    pop = if_else(
+      pop == "EUR,AFR",
+      "EUR",
+      pop
+    )
+  )
+
+pops = pgs_merged_pop_corrected$pop %>% unique()
+
+# generate the above scores over pop as a covariate
+
+scores_over_pop = lapply(
+  pops,
+  get_pgs_summ_stats_by_pop, pgs_merged_pop_corrected
+) %>% bind_rows()
+scores_over_pop
+
+# plot the pgs colored in male vs female
+pgs_merged %>% 
+  ggplot() +
+  aes(
+    x = SCORESUM,
+    y = height,
+    color = sex
+  ) +
+  geom_point() +
+  theme_minimal()
+
+# plot the distributions of the pgs
+pgs_merged %>% 
+  ggplot() +
+  aes(
+    x = SCORESUM
+  ) +
+  geom_density() +
+  theme_minimal()
+
+```
+
+Starting number of SNPs: 182
+Generated from PLINK: 2,548
+Variants matched: 2,548
+
+Looking at our distribution, most of our PGS are about -0.5 and are falling between -1 and 0. Overall, checking across the populations, it seems like PGS are helpful for predicting height across our different populations. None of the groups appear to reach a level of predictive significance. Our PGS are also stratified by sex as we can see from the pattern of the scatterplot. Overall, given the stratification by sex and overall lack of effect across populations, I would not say that adding PGS is very useful in this case.
+
+## Part 3 - File Harmonization Before Meta Analysis
+
+Use the R package EasyQC to perform quality checks for the GWAS from project 7 and for the second GWAS of the height from the UK Biobank (which was already been run).
+
+You can assume the genotypes in both studies have been cleaned (although we will investigate allele frequencies a little).
+EasyQC is primarily checking that the GWAS output isn't nonsensical and that alleles are coded consistently between the two studies.
+
+The following files are provided for this part:
+
+-   `p8_study1_gwas_results.txt` - standardized results from the GWAS of height from project 7
+-   `p8_study2_gwas2_results.txt` - results from a GWAS for height from the UK Biobank (positions are in hg38) (that have been downsampled for you)
+-   `p8_gwas1_gwas2.ecf` - a configuration file for EasyQC
+-   `p8_snp_reference.txt` - an annotation file containing population allele frequencies
+
+The configuration file `gwas1_gwas2.ecf` is almost entirely set up for you.
+You only need to make a few changes.
+**Copy the file `gwas1_gwas2.ecf` to your home directory.**
+
+-   First read through the file and the comments.
+    The documentation (<https://homepages.uni-regensburg.de/~wit59712/easyqc/EasyQC_9.0_Commands_140918_2.pdf>) also explains how the program works.
+
+-   Specify where to write the output with the `--pathOut` flag (near the top of the file).
+    Replace the path with a location within your home directory.
+
+In R, load the EasyQC package and run your configuration script with the command like `EasyQC("p8_gwas1_gwas2.ecf")`, supplying the path to your .ecf file.
+This will take a few minutes.
+
+The output includes a log, report (with counts of the number of variants dropped for each cleaning step), some plots, some more files containing information about variants failing some of the filters, and the cleaned data (i.e., GWAS results with problematic variants removed).
+
+Note: everything that you will need to move forward is created as output files.
+So, you can run the next code chunk once and then leave `eval=FALSE` for the chunk when you knit this file.
+
+Also note that multiple runs of this script file does NOT overwrite the results, it names them with successful counters (e.g., CLEANED.study_1.gz CLEANED_study_1.1.gz).
+I recommend you only run this once, otherwise you will need to carefully edit the metal script in the next part to point to the correct files.
+
+```{r part3_easyqc, eval=FALSE}
+
+# Process the GWAS files with EasyQC
+# change this to the path to your folder where you have your copy of the ecf file
+EasyQC("p8_gwas1_gwas2.ecf")
+
+```
+
+## Part 3 - Report
+
+Read the cleaned individual GWAS results (`CLEANED.study_1.gz` and `CLEANED.study_2.gz` from EasyQC), and the EasyQC report file (`p8_gwas1_gwas2.rep`) into R.
+
+Summarize the sample sizes for the two individual GWASs.
+
+How many variants were in each of the two individual GWAS (after EasyQC filtering)?
+
+According to the EasyQC report, how many variants were dropped from each?
+
+How many were flagged for allele frequency discrepancies, for being duplicates, or for failing some other validity check?
+
+```{r part3_report}
+
+# Your code goes here
+s1 = read_table("CLEANED.study1.gz")
+nrow(s1)
+
+s2 = read_table("CLEANED.study2.gz")
+nrow(s2)
+
+easy_report = read_table("p8_gwas1_gwas2.rep")
+
+# also gonna load the AA mismatch and AF check files because these column names are unclear for getting specifics
+# going to keep what I have parsed out below though
+aa1 = read_table("study1.AA.mismatch.txt")
+aa2 = read_table("study2.AA.mismatch.txt")
+
+af1 = read_table("study1.AFCHECK.outlier.txt")
+af2 = read_table("study2.AFCHECK.outlier.txt")
+
+extra = as.data.frame(
+  list(
+    "fileInShortName" = c("study1", "study2"),
+    "Allele Mismatch" = c(nrow(aa1), nrow(aa2)),
+    "Allele Freq Error" = c(nrow(af1), nrow(af2))
+  )
+)
+
+# Why is this report so gross? ... these columns names are so unclear... 
+# Why does nobody ever make their columns self documenting or easily parseable...
+
+allele_checks = easy_report %>% 
+  select(
+    fileInShortName,
+    matches("AA|allele")
+  ) %>% 
+  select(
+      fileInShortName,
+      matches("invalid|Missing")
+  ) %>% 
+  mutate(
+    `Allele Errors` = rowSums(
+      across(
+        where(is.numeric)
+      ),
+      na.rm = TRUE)
+  ) %>% 
+  select(
+    fileInShortName,
+    `Allele Errors`
+  )
+
+other_checks = easy_report %>% 
+  select(
+    fileInShortName,
+    !matches("AA|allele")
+  ) %>% 
+  select(
+    fileInShortName,
+    matches("invalid|Missing")
+  ) %>% 
+  mutate(
+    `Other Errors` = rowSums(
+      across(
+        where(is.numeric)
+      ),
+      na.rm = TRUE)
+  ) %>% 
+  select(
+    fileInShortName,
+    `Other Errors`
+  )
+
+easy_report_results = easy_report %>% 
+  select(
+    fileInShortName,
+    numVarIn,
+    numVarOut,
+    numDuplicates.cptid
+  ) %>% 
+  mutate(
+    numDropped = numVarIn - numVarOut
+  ) %>% 
+  left_join(
+    extra,
+    by = "fileInShortName"
+  ) %>% 
+  left_join(
+    allele_checks,
+    by = "fileInShortName"
+  ) %>% 
+  left_join(
+    other_checks,
+    by = "fileInShortName"
+  )
+
+easy_report_results
+
+```
+
+According to the report:
+
+Study 1: 104,466 in; 107,531 out; -3065 "dropped"; 1 duplicated, 6512 mismatches; 936 frequency errors; 1 other error
+
+Study 2: 488,915 in; 483,354 out; 5,561 dropped; 7,244 duplicated; 4,566 mismatches; 3,730 frequency errors; 33 other errors
+
+Honestly, I'm not too confident in these results given the increase for study 1 or from my initial understanding of these output files.
+
+
+
+## Part 4 - Meta Analysis
+
+Use METAL to meta-analyze the two GWAS results.
+
+First, read the documentation to learn how to make a script that meta-analyzes the two studies (<https://genome.sph.umich.edu/wiki/METAL_Documentation>).
+
+The configuration file `p8_metal_script.txt` has been provided.
+Read through this file and use the documentation for METAL at the link provided to make sense of what options have been used in this script.
+
+Copy this script to your folder.
+Edit the file to provide the paths to the EasyQC output files `CLEANED.study_1.gz` and `CLEANED.study_2.gz`.
+
+At the command line, load metal with `module load metal/2020-05-05`.
+To run the meta-analysis use the command `metal p8_metal_script.txt`.
+Make sure that you run this from the folder that contains your copy of `p8_metal_script.txt`.
+
+The output will be a log file and a text file with the suffix ".TBL", which contains a table of meta-analysis results.
+
+```         
+module load metal/2020-05-05
+metal p8_metal_script.txt
+```
+
+Note that multiple runs of this script file does NOT overwrite the results, it names them with successful counters (e.g., METAANALYSIS_1.TBL, METAANALYSIS2.TBL).
+Be sure you read in the results file you want to by editing the code below.
+
+Read the meta-analysis results (the .TBL file) into R and make Manhattan/Q-Q plots for the meta-analysis results.
+Edit the code provided below to point to the results file in your directory.
+You will need to turn on this chunk prior to knitting by setting `EVAL=TRUE`.
+
+```{r part4_meta}
+
+# Your code goes here
+metal_results = read_table("METAANALYSIS1.TBL")
+
+# clean the data a bit for qqman
+metal_results$MarkerName <- sub(":ID", "", metal_results$MarkerName)
+metal_results = metal_results %>%
+  separate_wider_delim(
+    MarkerName,
+    delim = ":",
+    names = c("chr", "pos"),
+    cols_remove = FALSE
+  ) %>% 
+  mutate(
+    chr = as.integer(chr),
+    pos = as.integer(pos)
+  )
+
+# manhattan
+qqman::manhattan(
+  metal_results,
+  chr = "chr",
+  bp = "pos",
+  snp = "MarkerName",
+  p = "P-value"
+)
+
+# qqplot
+qq(metal_results$`P-value`)
+
+```
+
+We are seeing definitive inflation in these plots from the meta-analysis.
+
+MetaAnalysis Helper - (c) 2007 - 2009 Goncalo Abecasis
+This version released on 2020-05-05
+
+# This program faciliates meta-analysis of genome-wide association studies.
+# Commonly used commands are listed below:
+#
+# Options for describing input files ...
+#   SEPARATOR        [WHITESPACE|COMMA|BOTH|TAB] (default = WHITESPACE)
+#   COLUMNCOUNTING   [STRICT|LENIENT]            (default = 'STRICT')
+#   MARKERLABEL      [LABEL]                     (default = 'MARKER')
+#   ALLELELABELS     [LABEL1 LABEL2]             (default = 'ALLELE1','ALLELE2')
+#   EFFECTLABEL      [LABEL|log(LABEL)]          (default = 'EFFECT')
+#   FLIP
+#
+# Options for filtering input files ...
+#   ADDFILTER        [LABEL CONDITION VALUE]     (example = ADDFILTER N > 10)
+#                    (available conditions are <, >, <=, >=, =, !=, IN)
+#   REMOVEFILTERS
+#
+# Options for sample size weighted meta-analysis ...
+#   WEIGHTLABEL      [LABEL]                     (default = 'N')
+#   PVALUELABEL      [LABEL]                     (default = 'PVALUE')
+#   DEFAULTWEIGHT    [NUMBER]                    (default = 1.0)
+#   MINWEIGHT        [NUMBER]                    (default = 1.0)
+#
+# Options for inverse variance weighted meta-analysis ...
+#   STDERRLABEL      [LABEL]                     (default = 'STDERR')
+#   SCHEME           [SAMPLESIZE|STDERR]         (default = SAMPLESIZE)
+#
+# Options to enable tracking of allele frequencies ...
+#   AVERAGEFREQ      [ON|OFF]                    (default = OFF)
+#   MINMAXFREQ       [ON|OFF]                    (default = OFF)
+#   FREQLABEL        [LABEL]                     (default = 'FREQ')
+#
+# Options to enable tracking of user defined variables ...
+#   CUSTOMVARIABLE   [VARNAME]
+#   LABEL            [VARNAME] AS [HEADER]
+#
+# Options to enable tracking of chromosomes and positions ...
+#   TRACKPOSITIONS   [ON|OFF]                    (default = OFF
+#   CHROMOSOMELABEL  [LABEL]                     (default = 'CHROMOSOME')
+#   POSITIONLABEL    [LABEL]                     (default = 'POSITION')
+#
+# Options to enable explicit strand information ...
+#   USESTRAND        [ON|OFF]                    (default = OFF)
+#   STRANDLABEL      [LABEL]                     (default = 'STRAND')
+#
+# Automatic genomic control correction of input statistics ...
+#   GENOMICCONTROL   [ON|OFF|VALUE|LIST snps.txt](default = OFF)
+#
+# Options to account for samples overlap ...
+#   OVERLAP          [ON|OFF]                    (default = OFF)
+#   ZCUTOFF          [NUMBER]                    (default = 1.0)
+#
+# Options for general analysis control ...
+#   PROCESSFILE            [FILENAME]
+#   OUTFILE                [PREFIX SUFFIX]       (default = 'METAANALYSIS','.TBL')
+#   MAXWARNINGS            [NUMBER]              (default = 20)
+#   VERBOSE                [ON|OFF]              (default = 'OFF')
+#   LOGPVALUE              [ON|OFF]              (default = 'OFF')
+#   EFFECT_PRINT_PRECISION [NUMBER]              (default = '4')
+#   STDERR_PRINT_PRECISION [NUMBER]              (default = '4')
+#   ANALYZE                [HETEROGENEITY]
+#   CLEAR
+
+# Options for general run control ...
+#   SOURCE           [SCRIPTFILE]
+#   RETURN
+#   QUIT
+
+# Processing commands in p8_metal_script.txt ...
+## Meta-analysis will be based on effect sizes and their standard errors ...
+## Set standard error header to SE ...
+## Genomic control correction of input statistics enabled
+## Set marker header to cptid ...
+## Set allele headers to EFFECT_ALLELE and OTHER_ALLELE ...
+## Set p-value header to PVAL ...
+## Set weight header to N ...
+## Set effect header to BETA ...
+## Set column separator to TAB ...
+## LENIENT MODE: Input lines can include extra columns, which will be ignored
+## Failed to open file '/ihome/adombrovski/tsb31/CLEANED.study1.gz'
+## Set marker header to cptid ...
+## Set allele headers to EFFECT_ALLELE and OTHER_ALLELE ...
+## Set p-value header to PVAL ...
+## Set weight header to N ...
+## Set effect header to BETA ...
+## Set column separator to TAB ...
+## LENIENT MODE: Input lines can include extra columns, which will be ignored
+## Failed to open file '/ihome/adombrovski/tsb31/CLEANED.study2.gz'
+###########################################################################
+## Running second pass analysis to evaluate heterogeneity...
+
+###########################################################################
+## Executing meta-analysis ...
+## Complete results will be stored in file 'METAANALYSIS1.TBL'
+## Column descriptions will be stored in file 'METAANALYSIS1.TBL.info'
+## Completed meta-analysis for 0 markers!
+
+## Clearing all stored statistics ...
+# Clearing user defined filters ...
+[tsb31@login4 p8]$ metal p8_metal_script.txt
+MetaAnalysis Helper - (c) 2007 - 2009 Goncalo Abecasis
+This version released on 2020-05-05
+
+# This program faciliates meta-analysis of genome-wide association studies.
+# Commonly used commands are listed below:
+#
+# Options for describing input files ...
+#   SEPARATOR        [WHITESPACE|COMMA|BOTH|TAB] (default = WHITESPACE)
+#   COLUMNCOUNTING   [STRICT|LENIENT]            (default = 'STRICT')
+#   MARKERLABEL      [LABEL]                     (default = 'MARKER')
+#   ALLELELABELS     [LABEL1 LABEL2]             (default = 'ALLELE1','ALLELE2')
+#   EFFECTLABEL      [LABEL|log(LABEL)]          (default = 'EFFECT')
+#   FLIP
+#
+# Options for filtering input files ...
+#   ADDFILTER        [LABEL CONDITION VALUE]     (example = ADDFILTER N > 10)
+#                    (available conditions are <, >, <=, >=, =, !=, IN)
+#   REMOVEFILTERS
+#
+# Options for sample size weighted meta-analysis ...
+#   WEIGHTLABEL      [LABEL]                     (default = 'N')
+#   PVALUELABEL      [LABEL]                     (default = 'PVALUE')
+#   DEFAULTWEIGHT    [NUMBER]                    (default = 1.0)
+#   MINWEIGHT        [NUMBER]                    (default = 1.0)
+#
+# Options for inverse variance weighted meta-analysis ...
+#   STDERRLABEL      [LABEL]                     (default = 'STDERR')
+#   SCHEME           [SAMPLESIZE|STDERR]         (default = SAMPLESIZE)
+#
+# Options to enable tracking of allele frequencies ...
+#   AVERAGEFREQ      [ON|OFF]                    (default = OFF)
+#   MINMAXFREQ       [ON|OFF]                    (default = OFF)
+#   FREQLABEL        [LABEL]                     (default = 'FREQ')
+#
+# Options to enable tracking of user defined variables ...
+#   CUSTOMVARIABLE   [VARNAME]
+#   LABEL            [VARNAME] AS [HEADER]
+#
+# Options to enable tracking of chromosomes and positions ...
+#   TRACKPOSITIONS   [ON|OFF]                    (default = OFF
+#   CHROMOSOMELABEL  [LABEL]                     (default = 'CHROMOSOME')
+#   POSITIONLABEL    [LABEL]                     (default = 'POSITION')
+#
+# Options to enable explicit strand information ...
+#   USESTRAND        [ON|OFF]                    (default = OFF)
+#   STRANDLABEL      [LABEL]                     (default = 'STRAND')
+#
+# Automatic genomic control correction of input statistics ...
+#   GENOMICCONTROL   [ON|OFF|VALUE|LIST snps.txt](default = OFF)
+#
+# Options to account for samples overlap ...
+#   OVERLAP          [ON|OFF]                    (default = OFF)
+#   ZCUTOFF          [NUMBER]                    (default = 1.0)
+#
+# Options for general analysis control ...
+#   PROCESSFILE            [FILENAME]
+#   OUTFILE                [PREFIX SUFFIX]       (default = 'METAANALYSIS','.TBL')
+#   MAXWARNINGS            [NUMBER]              (default = 20)
+#   VERBOSE                [ON|OFF]              (default = 'OFF')
+#   LOGPVALUE              [ON|OFF]              (default = 'OFF')
+#   EFFECT_PRINT_PRECISION [NUMBER]              (default = '4')
+#   STDERR_PRINT_PRECISION [NUMBER]              (default = '4')
+#   ANALYZE                [HETEROGENEITY]
+#   CLEAR
+
+# Options for general run control ...
+#   SOURCE           [SCRIPTFILE]
+#   RETURN
+#   QUIT
+
+# Processing commands in p8_metal_script.txt ...
+## Meta-analysis will be based on effect sizes and their standard errors ...
+## Set standard error header to SE ...
+## Genomic control correction of input statistics enabled
+## Set marker header to cptid ...
+## Set allele headers to EFFECT_ALLELE and OTHER_ALLELE ...
+## Set p-value header to PVAL ...
+## Set weight header to N ...
+## Set effect header to BETA ...
+## Set column separator to TAB ...
+## LENIENT MODE: Input lines can include extra columns, which will be ignored
+###########################################################################
+## Processing file '/ihome/adombrovski/tsb31/p8/CLEANED.study1.gz'
+## WARNING: Marker '10:100143786' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:101163508' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:102518519' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:102518519' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:102518519' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:102518519' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:102993540' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:103965552' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:104579463' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:105967173' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:106375037' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:106375037' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:106375037' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:106375037' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:106375037' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:106375037' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:106665003' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:106666554' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:108405823' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:108405823' duplicated in input, first instance used, others skipped
+## WARNING: An additional 3047 rows with duplicate marker names were ignored
+## Genomic control parameter is 1.014, adjusting test statistics
+## Processed 104464 markers ...
+
+## Set marker header to cptid ...
+## Set allele headers to EFFECT_ALLELE and OTHER_ALLELE ...
+## Set p-value header to PVAL ...
+## Set weight header to N ...
+## Set effect header to BETA ...
+## Set column separator to TAB ...
+## LENIENT MODE: Input lines can include extra columns, which will be ignored
+###########################################################################
+## Processing file '/ihome/adombrovski/tsb31/p8/CLEANED.study2.gz'
+## WARNING: Bad alleles for marker '11:10531821', expecting 'a/t' found 'a/c'
+## WARNING: Bad alleles for marker '14:65418592', expecting 'a/g' found 'a/c'
+## WARNING: Bad alleles for marker '14:75543735', expecting 'a/c' found 'a/g'
+## WARNING: Bad alleles for marker '15:57613754', expecting 'a/g' found 'c/g'
+## WARNING: Bad alleles for marker '18:63995433', expecting 'a/t' found 'a/g'
+## WARNING: Bad alleles for marker '20:10320520', expecting 'a/c' found 'a/g'
+## WARNING: Bad alleles for marker '21:23729972', expecting 'a/t' found 'a/g'
+## WARNING: Bad alleles for marker '21:44838098', expecting 'c/g' found 'a/g'
+## WARNING: Bad alleles for marker '22:45110727', expecting 'a/t' found 'a/g'
+## WARNING: Bad alleles for marker '2:172729982', expecting 'a/c' found 'a/g'
+## WARNING: Bad alleles for marker '2:192966873', expecting 'a/g' found 'c/g'
+## WARNING: Bad alleles for marker '3:143416855', expecting 'a/g' found 'a/c'
+## WARNING: Bad alleles for marker '5:38520095', expecting 'a/g' found 'a/c'
+## WARNING: Bad alleles for marker '9:132162906', expecting 'a/c' found 'c/g'
+## WARNING: Marker '10:101475241' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:102518519' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:102518519' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:102518519' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:102518519' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:104567714' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:105967173' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:106665003' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:110172574' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:110421074' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:112350175' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:115559441' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:117534993' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:118671123' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:11898541' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:123643355' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:123643355' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:123643355' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:12437174' duplicated in input, first instance used, others skipped
+## WARNING: Marker '10:12437174' duplicated in input, first instance used, others skipped
+## WARNING: Bad alleles for marker '11:107051541', expecting 'c/g' found 'a/c'
+## WARNING: Bad alleles for marker '21:18183812', expecting 'a/c' found 'c/g'
+## WARNING: An additional 1851 rows with duplicate marker names were ignored
+## Genomic control parameter is 12.577, adjusting test statistics
+## Processed 481467 markers ...
+
+###########################################################################
+## Running second pass analysis to evaluate heterogeneity...
+## Processing file '/ihome/adombrovski/tsb31/p8/CLEANED.study2.gz'
+## Processing file '/ihome/adombrovski/tsb31/p8/CLEANED.study1.gz'
+
+###########################################################################
+## Executing meta-analysis ...
+## Complete results will be stored in file 'METAANALYSIS1.TBL'
+## Column descriptions will be stored in file 'METAANALYSIS1.TBL.info'
+## Completed meta-analysis for 519546 markers!
+## Smallest p-value is 2.178e-24 at marker '3:141402972'
+
+## Clearing all stored statistics ...
+# Clearing user defined filters ...
+
+## Part 4 - Report
+
+Based on your reading of the metal script, what method of meta-analysis did we use?
+
+Using the meta-analysis results you read in above, do the following:
+
+Make a table summarizing effect directions across the two studies
+
+How many variants are shared across the two studies (i.e., how many have a non-missing effect and p-value in BOTH studies)?
+
+How many variants are unique to each study?
+
+What percentage of variants present in both studies have the same effect direction in both studies?
+
+For the most significant variant in the meta-analysis **that was present in both studies**, make a forest plot that shows the two individual study effect estimates and confidence intervals.
+Hint: you will need to read in the cleaned files from Easy QC for each study.
+Comment on whether the variant's effects seems to be homogeneous (based on the forest plot).
+
+**NOTE:** Metal returns Allele1 and Allele2 and the effects and directions it reports are for Allele1.
+If you want the opposite allele coding, you need to multiple the effect estimate by `-1`.
+
+```{r part4_report}
+
+# Your code goes here
+
+# variants across the two studies...according to the docs, DF would be number of studies -1, so 2-1= any column where this is 1
+both_studies = metal_results %>% 
+  filter(
+    HetDf == 1
+  ) %>% # capitalize the Alleles
+  mutate(
+    Allele1 = toupper(Allele1),
+    Allele2 = toupper(Allele2)
+  ) %>% # correct the effect size direction for later
+  mutate(
+    Effect = -Effect
+  )
+
+in_one_study = metal_results %>% 
+  filter(
+    HetDf < 1
+  )
+# add directions split by study for later
+directions = strsplit(both_studies$Direction, split = "") %>% 
+  as.data.frame() %>% 
+  t()
+rownames(directions) = NULL
+colnames(directions) = c("Direction1", "Direction2")
+
+both_studies = bind_cols(
+  both_studies,
+  directions
+) %>% # swap the directions because these are based on Allele 1 from each study
+  mutate(
+    Direction = if_else(
+      Effect < 0,
+      "-",
+      "+"
+    ),
+    Direction1 = if_else(
+      Direction1 == "+",
+      "-",
+      "+"
+    ),
+    Direction2 = if_else(
+      Direction2 == "+",
+      "-",
+      "+"
+    )
+  )
+
+s1 = s1 %>% 
+  mutate(
+    MarkerName = paste0(
+      CHR, ":", POS
+    )
+  )
+
+s2 = s2 %>% 
+  mutate(
+    MarkerName = paste0(
+      CHR, ":", POS
+    )
+  )
+
+# shared
+n_shared = nrow(both_studies)
+print("Shared")
+n_shared
+
+# unique to a study
+n_unique = nrow(metal_results) - n_shared
+print("Unique")
+n_unique
+
+# get the number of variants unique to each study
+
+in_study_1 = s1 %>% 
+  select(MarkerName) %>% 
+  unique() %>% 
+  inner_join(
+    in_one_study %>% 
+      select(MarkerName) %>% 
+      unique(),
+    by = "MarkerName"
+  )
+
+print("S1")
+nrow(in_study_1)
+
+in_study_2 = s2 %>% 
+  select(MarkerName) %>% 
+  unique() %>% 
+  inner_join(
+    in_one_study %>% 
+      select(MarkerName) %>% 
+      unique(),
+    by = "MarkerName"
+  )
+print("S2")
+nrow(in_study_2)
+
+# what perc have the same effect direction in both studies
+both_studies = both_studies %>% 
+  mutate(
+    DirectionsMatch = Direction1 == Direction2
+  )
+
+(nrow(both_studies %>% filter(DirectionsMatch)) / n_shared) * 100
+
+# summarize the effect directions across the two studies
+dir_table = both_studies %>%
+  select(
+    Direction, Direction1, Direction2
+  ) %>% 
+  as.list()
+
+get_str_count = function(str_list, str) {
+  count = sum(unlist(str_list) == str)
+  return(
+    count
+  )
+}
+
+pos_counts = lapply(dir_table, get_str_count, "+")
+neg_counts = lapply(dir_table, get_str_count, "-")
+
+dir_table = cbind(
+  pos_counts,
+  neg_counts
+) %>% 
+  as.data.frame() %>% 
+  mutate(
+    pos_counts = pos_counts %>% unlist(),
+    neg_counts = neg_counts %>% unlist(),
+  )
+rownames(dir_table) = c(
+  "Meta-Analysis",
+  "Study 1",
+  "Study 2"
+)
+dir_table
+
+# identify the top SNP across the two studies
+top_snp = both_studies %>% 
+  arrange(
+    `P-value`
+  )
+top_snp = top_snp[1,]
+top_snp
+
+top_chr = top_snp[1,"chr"] %>% unlist
+top_pos = top_snp[1,"pos"] %>% unlist
+
+# make a forest plot for the top SNP across the two studies
+top_snp_s1 = s1 %>% 
+  filter(
+    CHR == top_chr & POS == top_pos
+  ) %>% 
+  mutate(
+    STUDY = "Study 1"
+  ) %>% 
+  select(STUDY, BETA, SE)
+  
+top_snp_s2 = s2 %>% 
+  filter(
+    CHR == top_chr & POS == top_pos
+  ) %>% 
+  mutate(
+    STUDY = "Study 2"
+  ) %>% 
+  select(STUDY, BETA, SE)
+
+top_snp = top_snp %>%
+  mutate(
+    STUDY = "META",
+    BETA = Effect,
+    SE = StdErr
+  ) %>% 
+  select(STUDY, BETA, SE)
+
+meta.results = rbind(
+  top_snp,
+  top_snp_s1,
+  top_snp_s2
+) %>% 
+  mutate(
+    l95 = BETA -1.96 * SE,
+    u95 = BETA + 1.96 * SE
+  )
+
+meta.results %>% 
+  ggplot() +
+  aes(
+    y = fct_rev(STUDY)
+  ) +
+  geom_point(
+    aes(
+      x = BETA,
+      size = factor(STUDY == "META"),
+      shape = factor(STUDY == "META")
+    )
+  ) +
+  geom_linerange(
+    aes(
+      xmin = l95,
+      xmax = u95
+    )
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linetype = "dashed"
+  ) +
+  scale_size_manual(values = c(2,7)) +
+  scale_shape_manual(values = c(16,18)) +
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    axis.line.y = element_blank(),
+    axis.ticks.y= element_blank(),
+    axis.title.y= element_blank()
+  )
+
+```
+
+We used an Inverse-Variance Based approach to perform meta-analysis which also accounted for corrections on population stratification and unaccounted relatedness and that checked for homogeneity across our effect sizes. Across the two studies, we have 66,385 shared variants and 453,161 variants only identified in one of the studies. Of the shared variants, only about 50.2% of them share their direction of effect. Calculating the number of unique variants to each study individually lead to 38,093 in study 1 and 415,095 in study 2 (though note that these sum to 453,188, assuming there the missing 27 variants were potentially dropped in generating the merged meta-analysis data with METAL). The most significant variant shared across both studies was 20:35384250:T>C (p-value: 2.574e-21). Based on the forest plot generated for the top SNP, we can see that these studies are clearly not homogenous for this SNP. Study 1 has a huge standard error and a positive effect size that is dwarfing study 2.

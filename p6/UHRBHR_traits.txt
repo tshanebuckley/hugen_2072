@@ -1,0 +1,6 @@
+Slide	Array	Exp	Condition
+UHR_Rep1	1	1_1	UHR
+UHR_Rep2	2	1_2	UHR
+BHR_Rep1	3	2_1	BHR
+BHR_Rep2	4	2_2	BHR
+

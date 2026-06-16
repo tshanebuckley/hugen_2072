@@ -1,0 +1,27 @@
+PLINK v1.9.0-b.8 64-bit (22 Oct 2024)
+Options in effect:
+  --bfile /ix1/hugen2072-2026s/p8//p8_study1
+  --out /ihome/adombrovski/tsb31/p8/p8_study1_scored
+  --score /ix1/hugen2072-2026s/p8//p8_pgs002975_scores.txt header sum
+
+Hostname: login4.crc.pitt.edu
+Working directory: /ihome/adombrovski/tsb31/p8
+Start time: Sun Apr 26 21:08:20 2026
+
+Random number seed: 1777252100
+192055 MB RAM detected; reserving 96027 MB for main workspace.
+647629 variants loaded from .bim file.
+2548 people (0 males, 0 females, 2548 ambiguous) loaded from .fam.
+Ambiguous sex IDs written to /ihome/adombrovski/tsb31/p8/p8_study1_scored.nosex
+.
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 2548 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+Total genotyping rate is exactly 1.
+647629 variants and 2548 people pass filters and QC.
+Note: No phenotypes present.
+--score: 181 valid predictors loaded.
+--score: Results written to
+/ihome/adombrovski/tsb31/p8/p8_study1_scored.profile .
+
+End time: Sun Apr 26 21:08:21 2026
